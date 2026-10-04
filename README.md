@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # 塞曼效应交互式模拟器
 
 > **Hg I 546.1 nm 反常塞曼效应虚拟实验台**
@@ -511,6 +510,3 @@ node verify_headless.js
 ---
 
 *文档版本 2026-10-04　｜　对应模拟器版本同期*
-=======
-# Zeeman-Effect-Interactive-Lab
->>>>>>> origin/main
