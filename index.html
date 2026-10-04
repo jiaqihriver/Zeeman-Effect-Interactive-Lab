@@ -1,0 +1,1446 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>塞曼效应交互式模拟器 · Zeeman Effect Interactive Lab</title>
+<style>
+  :root{
+    --bg:#080c18; --panel:#101830; --panel2:#0d1428; --line:rgba(140,170,240,.16);
+    --text:#e2e9ff; --dim:#93a4cc; --accent:#a78bfa; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171;
+    --pi:#4ade80; --sp:#60a5fa; --sm:#f472b6; --up:#ff9f43; --lo:#4fc3f7;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,-apple-system,"Segoe UI",sans-serif;
+    font-size:14px; line-height:1.6; overflow-x:hidden;
+  }
+  .mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+  h1,h2,h3{margin:0;font-weight:600}
+  a{color:var(--sp)}
+
+  /* ---------- layout ---------- */
+  .app{display:grid;grid-template-columns:330px 1fr;min-height:100vh}
+  .side{
+    background:var(--panel2);border-right:1px solid var(--line);
+    padding:14px;display:flex;flex-direction:column;gap:12px;
+    position:sticky;top:0;height:100vh;overflow-y:auto;
+  }
+  .main{padding:14px 18px 40px;display:flex;flex-direction:column;gap:14px;min-width:0}
+
+  .brand{display:flex;align-items:center;gap:10px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+  .brand .logo{
+    width:34px;height:34px;border-radius:9px;flex:none;
+    background:linear-gradient(135deg,#a78bfa,#4fc3f7);
+    display:grid;place-items:center;font-weight:700;color:#08101f;font-size:15px;
+  }
+  .brand h1{font-size:15px;letter-spacing:.2px}
+  .brand p{margin:0;font-size:11.5px;color:var(--dim)}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .card>h2{font-size:13px;color:var(--dim);letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px}
+
+  label.row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px;font-size:12.5px}
+  label.row .val{color:var(--accent);font-weight:600;font-size:13px}
+  input[type=range]{width:100%;accent-color:var(--accent);height:22px;cursor:pointer}
+  .field{margin-bottom:12px}
+  .field:last-child{margin-bottom:0}
+  .hint{font-size:11.5px;color:var(--dim);margin-top:3px;line-height:1.45}
+
+  .seg{display:flex;gap:4px;background:var(--panel2);padding:3px;border-radius:9px;border:1px solid var(--line)}
+  .seg button{
+    flex:1;padding:6px 4px;border:0;border-radius:7px;background:transparent;color:var(--dim);
+    font-size:12px;cursor:pointer;font-family:inherit;transition:.15s;white-space:nowrap;
+  }
+  .seg button:hover{color:var(--text);background:rgba(255,255,255,.05)}
+  .seg button.on{background:var(--accent);color:#0a1020;font-weight:600}
+
+  /* ---------- rotatable polariser dial ---------- */
+  .pol-dial{display:flex;gap:11px;align-items:flex-start}
+  .dial-wrap{position:relative;width:104px;height:123px;flex:none}
+  .dial{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+  .dial:active{cursor:grabbing}
+  .dial-hit{position:absolute;left:0;top:0;width:100%;height:104px;cursor:grab}
+  .dial-hit:active{cursor:grabbing}
+  .dial-side{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+  .dial-side input[type=range]{margin:0}
+  .dial-presets{display:flex;flex-wrap:wrap;gap:4px}
+  .mini{
+    padding:3px 7px;border-radius:6px;border:1px solid var(--line);background:var(--panel2);
+    color:var(--dim);font-size:11px;cursor:pointer;font-family:inherit;transition:.15s;
+  }
+  .mini:hover{color:var(--text);border-color:var(--accent)}
+  .mini.on{background:var(--accent);color:#0a1020;border-color:transparent;font-weight:600}
+  .mini:disabled,.qwp-field input:disabled{opacity:.34;cursor:not-allowed}
+  .mini:disabled:hover{color:var(--dim);border-color:var(--line)}
+  /* two-step measurement protocol: step 1 fixes the geometry, step 2 measures
+     a symmetric split pair.  Numbered headers keep the order unmistakable. */
+  .step{border:1px solid var(--line);border-radius:10px;margin-bottom:11px;overflow:hidden}
+  .step:last-of-type{margin-bottom:0}
+  .step-hd{
+    display:flex;align-items:center;gap:8px;padding:7px 12px;
+    background:rgba(255,255,255,.025);font-size:12.5px;font-weight:600;
+  }
+  .step-n{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:19px;height:19px;border-radius:50%;flex:none;
+    background:var(--accent);color:#0a1020;font-size:11.5px;font-weight:700;
+  }
+  .step-bd{padding:11px 12px}
+  .step.done .step-hd{background:rgba(74,222,128,.10)}
+  .step.done .step-n{background:var(--ok);color:#08130a}
+  .step-bd > .scroll{max-height:190px}
+  #segPair button em{display:block;font-style:normal;font-size:9.5px;opacity:.6}
+  /* Polariser presets: 8 angles + remove, laid out as an even grid so the
+     block keeps a predictable height and the labels never wrap unevenly. */
+  #polPresets{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+  #polPresets .mini{padding:4px 2px;text-align:center;font-size:11px;line-height:1.25}
+  #polPresets .mini em{
+    display:block;font-style:normal;font-size:9px;opacity:.62;letter-spacing:.02em;
+  }
+  #polPresets .mini.on em{opacity:.8}
+  #polPresets .mini[data-a="off"]{grid-column:span 4}
+  /* The QWP block greys out when the plate cannot affect the current geometry
+     (it only works when looking along B).*/
+  .qwp-field.off{opacity:.45}
+  .qwp-field.off .dial-hit{cursor:not-allowed}
+  kbd{
+    font:inherit;font-size:9.5px;padding:1px 4px;border-radius:4px;
+    background:var(--panel2);border:1px solid var(--line);color:var(--dim);
+  }
+  .field label .row kbd{margin-left:5px}
+
+  .btn{
+    width:100%;padding:9px;border-radius:9px;border:1px solid var(--line);
+    background:var(--panel2);color:var(--text);cursor:pointer;font-family:inherit;font-size:12.5px;
+    transition:.15s;
+  }
+  .btn:hover{border-color:var(--accent);background:rgba(167,139,250,.12)}
+  .btn.primary{background:var(--accent);color:#0a1020;font-weight:600;border-color:transparent}
+  .btn.primary:hover{filter:brightness(1.1)}
+  .btn.ghost{background:transparent}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .btn-row{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+
+  /* ---------- readouts ---------- */
+  .readout{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .ro{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:7px 9px}
+  .ro .k{font-size:10.5px;color:var(--dim);letter-spacing:.3px}
+  .ro .v{font-size:14.5px;font-weight:600;margin-top:1px}
+  .ro .v small{font-size:10.5px;color:var(--dim);font-weight:400}
+
+  /* ---------- main panels ---------- */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:13px;overflow:hidden;
+    display:flex;flex-direction:column}
+  .panel>.hd{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
+    padding:9px 14px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.02);
+    flex:none;
+  }
+  .panel>.hd h2{font-size:13.5px}
+  .panel>.hd .sub{font-size:11.5px;color:var(--dim)}
+  .panel>.bd{padding:12px;flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+  /* Canvases must be sized by their LAYOUT box, not by the width/height
+     attributes.  Giving a canvas `width:100%` with auto height makes it take
+     the intrinsic (attribute) aspect ratio, which turns it into a huge square
+     and leaves the rest of the panel empty.  Declaring an explicit aspect-ratio
+     here keeps the box exactly the shape we want at any viewport width. */
+  .cv-wrap{position:relative;width:100%;flex:1 1 auto;min-height:0}
+  canvas{display:block;width:100%;height:100%;border-radius:9px}
+  /* The ring panel shares a grid row with the spectrum, so the row height is
+     set by the taller sibling.  Letting the ring canvas fill that full height
+     avoids the empty band that appeared beneath it. */
+  .cv-ring{min-height:460px}
+  .cv-spec{aspect-ratio:16/11;flex:none}
+  .svg-fig{width:100%;height:auto;display:block}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .grid2.wide{grid-template-columns:1fr 1.18fr}
+  /* ① energy levels and ② spectrum side by side */
+  .grid2.pair{grid-template-columns:1.12fr 1fr;align-items:stretch}
+  @media(max-width:1180px){
+    .app{grid-template-columns:1fr}
+    .side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}
+    .grid2,.grid2.wide{grid-template-columns:1fr}
+  }
+
+  /* ---------- tables ---------- */
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{padding:5px 7px;text-align:right;border-bottom:1px solid var(--line)}
+  th{color:var(--dim);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.3px}
+  th:first-child,td:first-child{text-align:left}
+  tbody tr:hover{background:rgba(255,255,255,.03)}
+  .scroll{max-height:230px;overflow-y:auto}
+
+  .result{
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    padding:12px 14px;border-radius:11px;border:1px solid var(--line);
+    background:linear-gradient(135deg,rgba(167,139,250,.10),rgba(79,195,247,.06));
+  }
+  .result .big{font-size:22px;font-weight:700;color:var(--accent)}
+  .result .lbl{font-size:11px;color:var(--dim)}
+
+  .chip{
+    display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:20px;
+    font-size:11px;border:1px solid var(--line);background:var(--panel2)
+  }
+  .chip.pi{color:var(--pi);border-color:rgba(74,222,128,.35)}
+  .chip.sp{color:var(--sp);border-color:rgba(96,165,250,.35)}
+  .chip.sm{color:var(--sm);border-color:rgba(244,114,182,.35)}
+
+  .banner{
+    display:flex;gap:9px;padding:9px 12px;border-radius:10px;font-size:12.5px;
+    border:1px solid var(--line);background:var(--panel2);align-items:flex-start
+  }
+  .banner.info{border-color:rgba(96,165,250,.3);background:rgba(96,165,250,.07)}
+  .banner.warn{border-color:rgba(251,191,36,.3);background:rgba(251,191,36,.07)}
+  .banner b{color:var(--text)}
+
+  .hidden{display:none !important}
+  .teacher-only{display:none}
+  body.teacher .teacher-only{display:revert}
+  body.teacher .teacher-only.flexrow{display:flex}
+  .flexrow{align-items:center;gap:10px;flex-wrap:wrap}
+  details.help{border:1px solid var(--line);border-radius:10px;background:var(--panel2);padding:8px 11px}
+  details.help summary{cursor:pointer;font-size:12.5px;color:var(--dim);outline:none}
+  details.help[open] summary{color:var(--text);margin-bottom:7px}
+  details.help .c{padding:0 10px 10px}
+  kbd{background:var(--panel);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 5px;font-size:11px;font-family:ui-monospace,monospace}
+  ol.steps{margin:0;padding-left:18px}
+  ol.steps li{margin-bottom:5px}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ==================== SIDEBAR ==================== -->
+  <aside class="side">
+    <div class="brand">
+      <div class="logo">Z</div>
+      <div>
+        <h1>塞曼效应虚拟实验</h1>
+        <p>Zeeman Effect Interactive Lab</p>
+      </div>
+    </div>
+
+    <!-- field control -->
+    <div class="card">
+      <h2>磁场控制</h2>
+      <div class="field">
+        <label class="row"><span>磁场 B</span><span class="val" id="lblB">0.00 T</span></label>
+        <input type="range" id="sldB" min="0" max="1.10" step="0.005" value="0">
+        <div class="hint">也可拖动下方电流，磁场按电磁铁标定曲线自动跟随</div>
+      </div>
+      <div class="field">
+        <label class="row"><span>线圈电流 I</span><span class="val" id="lblI">0.00 A</span></label>
+        <input type="range" id="sldI" min="0" max="6" step="0.02" value="0">
+        <div class="hint" id="hintI">B = 1.30·tanh(I / 5.20)　（软磁芯磁饱和）</div>
+      </div>
+      <div class="btn-row">
+        <button class="btn ghost" id="btnZero">归零</button>
+        <button class="btn ghost" id="btnMax">最大场</button>
+      </div>
+    </div>
+
+    <!-- observation -->
+    <div class="card">
+      <h2>观察条件</h2>
+      <div class="field">
+        <label class="row"><span>观察方向</span></label>
+        <div class="seg" id="segView">
+          <button data-v="perp" class="on">⊥ B</button>
+          <button data-v="para">∥ B</button>
+        </div>
+      </div>
+      <div class="field" id="polField">
+        <label class="row"><span>偏振片角度</span><span class="val" id="lblPol">无（0°）</span></label>
+        <div class="pol-dial">
+          <div class="dial-wrap">
+            <svg class="dial" viewBox="0 0 100 118" id="polDial">
+              <circle cx="50" cy="50" r="46" fill="#0a1020" stroke="rgba(140,170,240,.22)" stroke-width="1.5"/>
+              <!-- tick marks every 10 deg, labelled every 30 deg -->
+              <g id="dialTicks"></g>
+              <!-- B reference direction (up) -->
+              <line x1="50" y1="50" x2="50" y2="8" stroke="#a78bfa" stroke-width="2"/>
+              <text x="50" y="7" fill="#a78bfa" font-size="9" text-anchor="middle">B</text>
+              <!-- polariser transmission axis -->
+              <g id="dialAxis">
+                <line x1="50" y1="50" x2="50" y2="14" stroke="#f472b6" stroke-width="3" stroke-linecap="round"/>
+                <line x1="50" y1="50" x2="50" y2="86" stroke="#f472b6" stroke-width="3" stroke-linecap="round"/>
+              </g>
+              <circle cx="50" cy="50" r="3.5" fill="#f472b6"/>
+              <!-- transmission bars, clear of the tick labels -->
+              <text x="14" y="106" fill="#4ade80" font-size="7.5">π</text>
+              <rect x="22" y="101.5" width="72" height="4.5" rx="2" fill="#0a1020" stroke="rgba(140,170,240,.2)" stroke-width=".6"/>
+              <rect id="dialBarPi" x="22" y="101.5" width="0" height="4.5" fill="#4ade80"/>
+              <text x="14" y="114" fill="#60a5fa" font-size="7.5">σ</text>
+              <rect x="22" y="109.5" width="72" height="4.5" rx="2" fill="#0a1020" stroke="rgba(140,170,240,.2)" stroke-width=".6"/>
+              <rect id="dialBarSigma" x="22" y="109.5" width="0" height="4.5" fill="#60a5fa" opacity=".9"/>
+            </svg>
+            <div class="dial-hit" id="polHit" title="拖动旋转偏振片"></div>
+          </div>
+          <div class="dial-side">
+            <input type="range" id="sldPol" min="0" max="360" step="1" value="0">
+            <div class="dial-presets" id="polPresets">
+              <!-- 0deg to 315deg in 45deg steps: a full turn covers both
+                   physically distinct axes (parallel / perpendicular to B)
+                   and every intermediate elliptical projection.0 and 180 are
+                   equivalent, as are 90 and 270, because a linear polariser
+                   has 180-deg periodicity. -->
+              <button class="mini" data-a="0">0°<em>∥B</em></button>
+              <button class="mini" data-a="45">45°</button>
+              <button class="mini" data-a="90">90°<em>⊥B</em></button>
+              <button class="mini" data-a="135">135°</button>
+              <button class="mini" data-a="180">180°</button>
+              <button class="mini" data-a="225">225°</button>
+              <button class="mini" data-a="270">270°</button>
+              <button class="mini" data-a="315">315°</button>
+              <button class="mini" data-a="off">移除</button>
+            </div>
+            <div class="hint" id="polHint"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- quarter-wave plate: only meaningful when looking ALONG B -->
+      <div class="field qwp-field" id="qwpField">
+        <label class="row"><span>四分之一波片<kbd>QWP</kbd></span><span class="val" id="lblQwp">未插入</span></label>
+        <div class="pol-dial">
+          <div class="dial-wrap">
+            <svg class="dial" viewBox="0 0 100 118" id="qwpDial">
+              <circle cx="50" cy="50" r="46" fill="#0a1020" stroke="rgba(140,170,240,.22)" stroke-width="1.5"/>
+              <g id="qwpTicks"></g>
+              <line x1="50" y1="50" x2="50" y2="8" stroke="#a78bfa" stroke-width="2"/>
+              <text x="50" y="7" fill="#a78bfa" font-size="9" text-anchor="middle">B</text>
+              <!-- fast / slow axes of the plate -->
+              <g id="qwpAxis" style="display:none">
+                <line id="qwpFast" x1="50" y1="50" x2="50" y2="16" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/>
+                <line id="qwpSlow" x1="50" y1="50" x2="50" y2="84" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" stroke-dasharray="4 3"/>
+                <circle cx="50" cy="50" r="3.5" fill="#fbbf24"/>
+              </g>
+              <!-- transmission bars for the two circular groups -->
+              <text x="14" y="106" fill="#60a5fa" font-size="7.5">σ⁺</text>
+              <rect x="24" y="101.5" width="70" height="4.5" rx="2" fill="#0a1020" stroke="rgba(140,170,240,.2)" stroke-width=".6"/>
+              <rect id="qwpBarSp" x="24" y="101.5" width="0" height="4.5" fill="#60a5fa"/>
+              <text x="14" y="114" fill="#f472b6" font-size="7.5">σ⁻</text>
+              <rect x="24" y="109.5" width="70" height="4.5" rx="2" fill="#0a1020" stroke="rgba(140,170,240,.2)" stroke-width=".6"/>
+              <rect id="qwpBarSm" x="24" y="109.5" width="0" height="4.5" fill="#f472b6" opacity=".9"/>
+            </svg>
+            <div class="dial-hit" id="qwpHit" title="拖动旋转波片"></div>
+          </div>
+          <div class="dial-side">
+            <input type="range" id="sldQwp" min="0" max="180" step="1" value="0" disabled>
+            <div class="dial-presets">
+              <button class="mini" data-q="0" disabled>纯 σ⁺</button>
+              <button class="mini" data-q="22.5" disabled>各半 22.5°</button>
+              <button class="mini" data-q="45" disabled>纯 σ⁻</button>
+              <button class="mini" data-q="off" disabled>取出</button>
+            </div>
+            <button class="btn ghost" id="btnCombo" style="padding:6px;font-size:11.5px"
+                    disabled>一键配置：波片 + 检偏片</button>
+            <div class="hint" id="qwpHint"></div>
+          </div>
+        </div>
+      </div>
+      <div class="hint" id="geomHint"></div>
+    </div>
+
+    <!-- instrument -->
+    <div class="card">
+      <h2>仪器参数</h2>
+      <div class="field">
+        <label class="row"><span>光谱仪分辨率</span><span class="val" id="lblRes">0.045 L</span></label>
+        <input type="range" id="sldRes" min="0.005" max="0.30" step="0.005" value="0.045">
+        <div class="hint">调大则相邻分量合并——复现“分辨率不足”时的观察</div>
+      </div>
+      <div class="field">
+        <label class="row"><span>视场 θ<sub>max</sub></span><span class="val" id="lblFov">4.0°</span></label>
+        <input type="range" id="sldFov" min="2.2" max="5.0" step="0.1" value="4.0">
+        <div class="hint">视场越大可见亮环越多；须与干涉仪间距 d 匹配</div>
+      </div>
+      <details class="help" style="margin-top:4px">
+        <summary>干涉仪参数（教师）</summary>
+        <div class="c">
+          <div class="field">
+            <label class="row"><span>Fabry–Perot 间距 d</span><span class="val" id="lblD">1.00 mm</span></label>
+            <input type="range" id="sldD" min="0.3" max="2.0" step="0.05" value="1.0">
+            <div class="hint">须满足自由光谱范围 &gt; 塞曼总分裂，否则相邻级次混叠</div>
+          </div>
+          <div class="field">
+            <label class="row"><span>透镜焦距 f</span><span class="val" id="lblF">250 mm</span></label>
+            <input type="range" id="sldF" min="80" max="600" step="10" value="250">
+          </div>
+          <div class="field">
+            <label class="row"><span>镜面反射率 R</span><span class="val" id="lblR">0.90</span></label>
+            <input type="range" id="sldR" min="0.50" max="0.98" step="0.01" value="0.90">
+          </div>
+          <div class="hint">精细度 ℱ = <span id="lblFin">29.8</span>　自由光谱范围 = <span id="lblFsr">—</span></div>
+        </div>
+      </details>
+    </div>
+
+    <!-- mode -->
+    <div class="card">
+      <h2>教学模式</h2>
+      <div class="seg" id="segMode" style="margin-bottom:9px">
+        <button data-m="student" class="on">学生模式</button>
+        <button data-m="teacher">教师模式</button>
+      </div>
+      <div class="hint" id="modeHint">学生模式：隐藏理论值与拟合结果，先自行测量</div>
+    </div>
+
+    <div class="card" style="margin-top:auto">
+      <details class="help">
+        <summary>物理常数与数据来源</summary>
+        <div class="c mono" style="font-size:11px;line-height:1.75">
+          μ<sub>B</sub> = 9.2740100783×10⁻²⁴ J/T<br>
+          1 L = μ<sub>B</sub>B/hc = 0.46686·B cm⁻¹<br>
+          6s7s ³S₁ = 62350.325 cm⁻¹<br>
+          6s6p ³P₂ = 44042.909 cm⁻¹<br>
+          ν₀ = 18307.416 cm⁻¹ → λ₀ = 546.23 nm<br>
+          g(³S₁) = 2.000　g(³P₂) = 1.500<br>
+          <span style="color:var(--dim)">能级数据 NIST ASD / CODATA 2018</span>
+        </div>
+      </details>
+    </div>
+  </aside>
+
+  <!-- ==================== MAIN ==================== -->
+  <main class="main">
+
+    <!-- causal chain banner -->
+    <div class="banner info">
+      <div style="font-size:16px">⚛</div>
+      <div>
+        <b>因果链：</b>电流 I → 磁场 B → 能级分裂 ΔE = g_J m_J μ_B B → 谱线分裂（9 条）→ 干涉环分裂 → 反算 μ_B
+        <div style="color:var(--dim);font-size:11.5px;margin-top:2px">
+        注意：546.1 nm 是 ³S₁ → ³P₂ 跃迁，上下能级 g 值不等（2 ≠ 1.5），属<b style="color:var(--warn)">反常塞曼效应</b>，分裂为 9 条而非 3 条。</div>
+      </div>
+    </div>
+
+    <!-- ① energy levels + ② spectrum share one row -->
+    <div class="grid2 pair">
+      <section class="panel">
+        <div class="hd">
+          <h2>① 原子能级与允许跃迁</h2>
+          <div class="sub" id="subEnergy"></div>
+        </div>
+        <div class="bd" id="energyBox"></div>
+      </section>
+
+      <section class="panel">
+        <div class="hd">
+          <h2>② 观测光谱</h2>
+          <div class="sub" id="subSpec"></div>
+        </div>
+        <div class="bd"><div class="cv-wrap cv-spec"><canvas id="cvSpec"></canvas></div></div>
+      </section>
+    </div>
+
+    <!-- ③ Fabry–Perot rings get a full row of their own -->
+    <section class="panel">
+      <div class="hd">
+        <h2>③ Fabry–Perot 干涉环（CCD）</h2>
+        <div class="sub" id="subRing"></div>
+      </div>
+      <div class="bd"><div class="cv-wrap cv-ring"><canvas id="cvRing"></canvas></div></div>
+    </section>
+
+    <!-- live readout -->
+    <section class="panel">
+      <div class="hd"><h2>实时数据</h2><div class="sub">随 B 变化</div></div>
+      <div class="bd">
+        <div class="readout" id="readout"></div>
+        <div class="flexrow" style="margin-top:11px" id="chips"></div>
+      </div>
+    </section>
+
+    <!-- measurement -->
+    <section class="panel">
+      <div class="hd">
+        <h2>④ 实验测量与玻尔磁子</h2>
+        <div class="sub" id="subMeas">垂直于 B 观察 · 偏振片移除 · 9 条谱线全部可见</div>
+      </div>
+      <div class="bd">
+        <div id="measNotice" style="display:none;margin-bottom:10px"></div>
+
+        <!-- ---- step 1 ---- -->
+        <div class="step">
+          <div class="step-hd"><span class="step-n">1</span>定标：测B = 0 时的两个参考环直径</div>
+          <div class="step-bd">
+            <div class="grid2">
+              <div>
+                <div class="field">
+                  <label class="row"><span>参考级次 k（内环）</span><span class="val" id="lblK">k = 3658</span></label>
+                  <input type="range" id="sldK" min="3655" max="3660" step="1" value="3658">
+                  <div class="hint" id="hintK"></div>
+                </div>
+                <div class="btn-row" style="margin-bottom:8px">
+                  <button class="btn primary" id="btnRef">测量D<sub>k</sub> 与 D<sub>k−1</sub></button>
+                </div>
+                <div id="refBox" class="hint"></div>
+              </div>
+              <div>
+                <table id="tblRef">
+                  <thead><tr><th>量</th><th>直径 / mm</th><th>说明</th></tr></thead>
+                  <tbody><tr><td colspan="3" style="text-align:center;color:var(--dim)">尚未测量</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ---- step 2 ---- -->
+        <div class="step">
+          <div class="step-hd"><span class="step-n">2</span>加磁场：测k−1 级中一对对称谱线的环直径</div>
+          <div class="step-bd">
+            <div class="field">
+              <label class="row"><span>对称谱线对</span></label>
+              <div class="seg" id="segPair">
+                <button data-p="0">第 4 / 6 条<em>π 线对</em></button>
+                <button data-p="1" class="on">第 3 / 7 条<em>σ 线对</em></button>
+              </div>              <div class="hint" id="hintPair"></div>
+            </div>
+            <div class="btn-row" style="margin-bottom:8px">
+              <button class="btn primary" id="btnMeasure">记录本点</button>
+              <button class="btn" id="btnSweep">自动扫描 0 → 1.05 T</button>
+              <button class="btn ghost" id="btnClear">清空</button>
+            </div>
+            <div class="scroll">
+              <table id="tbl">
+                <thead><tr>
+                  <th>B / T</th><th>D<sub>外</sub> / mm</th><th>D<sub>内</sub> / mm</th>
+                  <th>ΔD² = D外²−D内² / mm²</th><th>μ<sub>B</sub> / J·T⁻¹</th>
+                </tr></thead>
+                <tbody><tr><td colspan="5" style="text-align:center;color:var(--dim)">尚无数据</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="resultBox" style="margin-top:12px"></div>
+      </div>
+    </section>
+
+    <!-- apparatus -->
+    <section class="panel">
+      <div class="hd"><h2>⑤ 实验装置</h2><div class="sub">光路与元件</div></div>
+      <div class="bd" id="apparatus"></div>
+    </section>
+
+    <footer style="color:var(--dim);font-size:11.5px;text-align:center;padding-top:6px">
+      交互式教学模拟器 · 物理引擎基于 NIST 原子光谱数据与标准选择定则 · 数值为理想化模型，仅供教学演示
+    </footer>
+  </main>
+</div>
+
+<script src="src/physics.js"></script>
+<script src="src/render.js"></script>
+<script src="src/measure.js"></script>
+<script>
+(function(){
+'use strict';
+const P = ZeemanPhysics, R = ZeemanRender, M = ZeemanMeasure;
+const $ = id => document.getElementById(id);
+
+/* ------------------------------------------------------------- app state */
+const st = {
+  B: 0, I: 0,
+  view: 'perp', polariser: null,
+  qwp: null,// QWP fast-axis angle in degrees; null = plate removed
+  resolutionLorentz: 0.045, fovDeg: 4.0,
+  mode: 'student',
+  orderK: 3658,          // step-1 reference order (inner of the measured pair)
+  session: new M.Session()
+};
+
+function setB(v, fromI){
+  st.B = Math.max(0, Math.min(1.10, v));
+  $('sldB').value = st.B;
+  $('lblB').textContent = st.B.toFixed(2)+' T';
+  if(!fromI){
+    // invert B = 1.30 tanh(I/5.20)
+    const r = Math.min(0.999, st.B/P.MAGNET.B_sat);
+    st.I = P.MAGNET.I0*Math.atanh(r);
+    $('sldI').value = st.I;
+    $('lblI').textContent = st.I.toFixed(2)+' A';
+  }
+  draw();
+}
+function setI(v){
+  st.I = Math.max(0, Math.min(P.MAGNET.I_max, v));
+  $('sldI').value = st.I;
+  $('lblI').textContent = st.I.toFixed(2)+' A';
+  st.B = P.fieldFromCurrent(st.I);
+  $('sldB').value = st.B;
+  $('lblB').textContent = st.B.toFixed(2)+' T';
+  draw();
+}
+
+/* ---------------------------------------------------------------- drawing */
+function draw(){
+  // geom carries the whole optical train: observation direction, the linear
+  // polariser angle, and the QWP fast-axis angle.  Every renderer reads it.
+  const geom = {view:st.view, polariser:st.polariser, qwp:st.qwp};
+
+  // energy diagram
+  $('energyBox').innerHTML = R.energySVG(st.B, geom);
+  const comps = P.components(st.B);
+  $('subEnergy').textContent = st.B<1e-6
+    ? 'B = 0：能级未分裂'
+    : `${comps.length} 条允许跃迁 · 相邻间隔 0.5 L`;
+
+  // spectrum
+  R.spectrum($('cvSpec'), st.B, Object.assign({labels:true, spanLorentz:2.6, groupBrackets:true}, geom,
+              {resolutionLorentz: st.resolutionLorentz}));
+  const vis = P.applyGeometry(comps, st.view, st.polariser, st.qwp).filter(c=>c.weight>=P.VISIBLE_EPS);
+  $('subSpec').textContent = vis.length ? `${vis.length} 条可见` : '无可见分量';
+
+  // rings
+  // rings — annotate the nine rings of the order being measured so the
+  // "line 4 / line 6" numbering used by the protocol is readable on the image
+  const markOrder = st.session.splitOrder();
+  const markPair = { inner: st.session.pair().inner, outer: st.session.pair().outer };
+  R.rings($('cvRing'), st.B, Object.assign({}, geom,
+    { thetaMaxDeg: st.fovDeg, markOrder, markPair }));
+  $('subRing').textContent = `d = ${P.FP.d_mm} mm · ℱ = ${P.FP.finesse.toFixed(1)}`;
+
+  drawReadout(vis);
+  drawChips(vis);
+  drawInstrumentLabels();
+}
+
+function drawReadout(vis){
+  const L = P.LORENTZ_PER_T*st.B;
+  const items = [
+    ['磁场 B', st.B.toFixed(3), 'T'],
+    ['1 洛伦兹单位', L.toFixed(4), 'cm⁻¹'],
+    ['相邻分量间隔', (0.5*L).toFixed(4), 'cm⁻¹'],
+    ['总分裂 Δν', (4*L).toFixed(4), 'cm⁻¹'],
+    ['总分裂 Δλ', (lambdaSpan()).toFixed(5), 'nm'],
+    ['ΔE (σ⁺)', (2*P.MU_B*st.B).toExponential(2), 'J'],
+    ['μ_B B', (P.MU_B*st.B).toExponential(2), 'J'],
+    ['可见分量', String(vis.length), `/ ${P.components(st.B).length}`]
+  ];
+  // Looking along B only the two circular groups survive, so spell out how
+  // many of each are getting through -- that is the number the QWP controls.
+  if (st.view === 'para') {
+    const g = P.sigmaGroups(P.applyGeometry(P.components(st.B), 'para', st.polariser, st.qwp));
+    items.push(['σ⁺ 组（蓝移侧）', `${g['sigma+'].vis} / 3`, '条']);
+    items.push(['σ⁻ 组（红移侧）', `${g['sigma-'].vis} / 3`, '条']);
+    if (st.qwp !== null) {
+      items.push(['λ/4 片快轴', st.qwp.toFixed(0), '°']);
+      items.push(['转换后线偏振方向', (((2 * st.qwp) % 180 + 180) % 180).toFixed(0), '° (=2φ)']);
+    }
+  }
+  $('readout').innerHTML = items.map(([k,v,u])=>
+    `<div class="ro"><div class="k">${k}</div><div class="v">${v} <small>${u}</small></div></div>`).join('');
+}
+function lambdaSpan(){
+  const c = P.components(st.B);
+  const a = c[0], b = c[c.length-1];
+  return Math.abs(b.lambda_nm - a.lambda_nm);
+}
+function drawChips(vis){
+  const order = { 'sigma+':0, 'pi':1, 'sigma-':2 };
+  const sorted = vis.slice().sort((a,b)=>order[a.pol]-order[b.pol]);
+  $('chips').innerHTML = sorted.map(c=>{
+    const cls = c.pol==='pi'?'pi':(c.pol==='sigma+'?'sp':'sm');
+    const tag = c.pol==='pi'?'π':(c.pol==='sigma+'?'σ⁺':'σ⁻');
+    return `<span class="chip ${cls}">${tag} · Δm=${c.q>=0?'+'+c.q:c.q} · m<sub>J</sub>=${c.mU>0?'+'+c.mU:c.mU}/${c.mL>0?'+'+c.mL:c.mL}
+            · ${c.lambda_nm.toFixed(4)} nm · ${(c.strength*100).toFixed(0)}%${c.note?' · '+c.note:''}</span>`;
+  }).join('');
+}
+function drawInstrumentLabels(){
+  $('lblFin').textContent = P.FP.finesse.toFixed(1);
+  // FSR in cm^-1 = 1/(2nd) with d in cm
+  const fsr = 1/(2*P.FP.n*(P.FP.d_mm/10));
+  $('lblFsr').textContent = fsr.toFixed(2)+' cm⁻¹';
+}
+
+/* ------------------------------------------------------- measurement table */
+  /* Step 1 renders the two reference rings; step 2 the split-pair data. */
+  function refreshTable(){
+    // ---- step 1: the two reference rings
+    const rb = $('tblRef').querySelector('tbody');
+    const ref = st.session.ref;
+    if(!ref){
+      rb.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--dim)">尚未测量</td></tr>';
+      $('refBox').innerHTML = '<span style="color:var(--dim)">先在 B = 0 测下相邻两级的环直径，' +
+        '由此反解干涉级次 k —— 第 2 步的公式含 1/m²，必须先定出 m。</span>';
+    }else{
+      const rows = [
+        ['D<sub>k</sub>（内环）', ref.Dk.toFixed(4), '级次 k = ' + ref.k],
+        ['D<sub>k−1</sub>（外环）', ref.Dk1.toFixed(4), '级次 k−1 = ' + (ref.k - 1)]
+      ];
+      rb.innerHTML = rows.map(function(r){
+        return '<tr><td>' + r[0] + '</td><td class="mono">' + r[1] +
+               '</td><td style="color:var(--dim)">' + r[2] + '</td></tr>';
+      }).join('') +
+      '<tr><td>u = λ₀/2nd</td><td class="mono">' + ref.u.toExponential(6) +
+      '</td><td style="color:var(--dim)">反解残差 ' + ref.residual.toExponential(1) + '</td></tr>';
+      $('refBox').innerHTML = '已定出 <b>干涉级次 k = ' + ref.k + '</b>，第 2 步在 <b>m = ' +
+        (ref.k - 1) + '</b> 级上测量分裂环。';
+    }
+    const steps = document.querySelectorAll('.step');
+    if (steps[0]) steps[0].classList.toggle('done', !!ref);
+    if (steps[1]) steps[1].classList.toggle('done', st.session.rows.length > 0);
+
+    // ---- step 2: the split-pair data
+    const tb = $('tbl').querySelector('tbody');
+    const rows2 = st.session.rows;
+    if(!rows2.length){
+      tb.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--dim)">尚无数据</td></tr>';
+    }else{
+      tb.innerHTML = rows2.map(function(r){
+        return '<tr>' +
+          '<td>' + r.B.toFixed(3) + '</td>' +
+          '<td class="mono">' + r.Douter.toFixed(4) + '</td>' +
+          '<td class="mono">' + r.Dinner.toFixed(4) + '</td>' +
+          '<td class="mono">' + r.DSq.toFixed(4) + '</td>' +
+          '<td class="mono">' + (isFinite(r.muB) ? r.muB.toExponential(4) : '—') + '</td></tr>';
+      }).join('');
+    }
+    refreshResult();
+  }
+
+  /** Render 9.1615e-24 as 9.1615 × 10⁻²⁴ */
+  function fmtExp(x){
+    if(!isFinite(x)) return '—';
+    const parts = x.toExponential(4).split('e');
+    const sup = parts[1].replace(/-/g, '⁻')
+      .replace(/[0-9]/g, function(d){ return '⁰¹²³⁴⁵⁶⁷⁸⁹'[+d]; });
+    return parts[0] + ' × 10' + sup;
+  }
+
+  function refreshResult(){
+    const box = $('resultBox');
+    const a = st.session.analyse();
+    if(!a){
+      const why = !st.session.ref
+        ? '请先完成第 1 步：测量 B = 0 时 k 级与 k−1 级的环直径。'
+        : '请在 <b>2 个以上</b>不同 B 值下点击“记录本点”。';
+      box.innerHTML = '<div class="banner"><div>ΔD²–B 直线拟合：斜率 → μ<sub>B</sub></div><div>' +
+        why + '</div></div>';
+      return;
+    }
+    if(st.mode !== 'teacher'){
+      box.innerHTML = '<div class="banner warn"><div>学生模式：拟合结果与理论值已隐藏。' +
+        '请先完成自己的数据处理，再切换到教师模式揭晓。</div></div>';
+      return;
+    }
+    const pct = a.relErr;
+    const good = Math.abs(pct) < 3;
+    const pr = a.pair;
+    box.innerHTML = '<div class="result">' +
+      '<div><div class="lbl">干涉级次 m（第 2 步）</div><div class="big">' + a.m + '</div>' +
+        '<div class="lbl">由第 1 步反解</div></div>' +
+      '<div><div class="lbl">斜率 d(ΔD²)/dB</div><div class="big">' + a.fit.slope.toFixed(4) + '</div>' +
+        '<div class="lbl">cm²/T　R² = ' + a.fit.r2.toFixed(5) + '　n = ' + a.n + '</div></div>' +
+      '<div><div class="lbl">实验测得 μ_B</div><div class="big">' + fmtExp(a.muB) + '</div>' +
+        '<div class="lbl">J/T　± ' + (isFinite(a.muBErr) ? fmtExp(a.muBErr) : '—') + '</div></div>' +
+      '<div><div class="lbl">CODATA 理论值</div><div class="big" style="color:var(--dim)">' +
+        fmtExp(a.muBCodata) + '</div><div class="lbl">J/T</div></div>' +
+      '<div><div class="lbl">相对误差</div>' +
+        '<div class="big" style="color:' + (good ? 'var(--ok)' : 'var(--warn)') + '">' +
+        (pct >= 0 ? '+' : '') + pct.toFixed(2) + ' %</div>' +
+        '<div class="lbl">' + (good ? '测量合理' : '注意系统误差') + '</div></div>' +
+      '</div>' +
+      '<div class="hint" style="margin-top:7px">' +
+        '测量对：<b>' + pr.tag + '</b>（δ₀ = ' + pr.d0 + ' 洛伦兹单位）。<br>' +
+        '第 1 步：u = λ₀/(2nd) = ' + a.ref.u.toExponential(6) + '，k = cosθ<sub>k</sub>/u = ' +
+          a.ref.k + '。<br>' +
+        '第 2 步：ΔD² = D<sub>外</sub>² − D<sub>内</sub>² = 16 f²K²ν₀δ₀·μ_B·B/(hc)，K = 2nd/m。<br>' +
+        '各点 μ_B 平均 ' + fmtExp(a.meanPerPoint) + '，标准差 ' +
+          (isFinite(a.spreadPerPoint) ? a.spreadPerPoint.toExponential(2) : '—') +
+          ' J/T。残余偏差主要来自第 1 步的读数误差（u 是两个接近的余弦之差，' +
+          '对环位读数极敏感）与分裂环未完全分辨——与真实实验同量级。' +
+      '</div>';
+  }
+
+/* ------------------------------------------------------------- apparatus */
+function apparatusSVG(){
+  /* Layout of the optical train, drawn as a TOP VIEW (plan view looking down
+     on the bench):
+
+       - The magnet sits at the LEFT, and the Hg lamp is INSIDE the pole gap.
+         That is the actual arrangement: the resonant line must be produced
+         while the emitting atoms are already in the field, otherwise there
+         would be no Zeeman splitting to observe at all.
+       - Light travels left to right along the beam axis (y = 130).
+       - B points UP the page (N pole above, S pole below), so B is
+         PERPENDICULAR to the beam: this is the transverse (⊥B) geometry.
+
+     Polariser and quarter-wave plate:
+       - Their SURFACES are always perpendicular to the beam — that is a
+         physical requirement, not a stylistic choice.  Rotating the element
+         about the beam axis changes the direction of its transmission axis
+         inside the transverse plane; it never tilts the plate.
+       - A top view cannot show a direction that lies in the plane
+         perpendicular to the page, so the plate is drawn as a fixed vertical
+         bar (perpendicular to the beam) and its TRANSMISSION AXIS is shown
+         separately by the small dial apAx below, which is a face-on view of
+         the transverse plane.  The bar itself never rotates.               */
+  const beamY = 130;
+  const lampX = 150;              // inside the pole gap
+  const plate = (x, colour, name, id) => `
+      <rect x="${x}" y="88" width="10" height="84" rx="2"
+            fill="${colour}" opacity="0.38" stroke="${colour}" stroke-width="1.4"/>
+      <text x="${x + 5}" y="196" fill="${colour}" font-size="11.5"
+            text-anchor="middle">${name}</text>`;
+
+  return `<svg viewBox="0 0 900 250" xmlns="http://www.w3.org/2000/svg" class="svg-fig">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker>
+    <linearGradient id="beam" x1="0" x2="1">
+      <stop offset="0" stop-color="#fbbf24" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#4ade80" stop-opacity="0.60"/></linearGradient>
+  </defs>
+  <rect width="900" height="250" fill="#101830" rx="10"/>
+
+  <!-- ===== magnet: pole pieces above and below the beam axis ===== -->
+  <rect x="60" y="34" width="180" height="34" rx="4" fill="#33415c" stroke="#64748b"/>
+  <rect x="60" y="192" width="180" height="34" rx="4" fill="#33415c" stroke="#64748b"/>
+  <!-- pole-face hatching, the standard way to draw magnetic iron -->
+  ${[...Array(9)].map((_, i) => `<line x1="${72 + i * 19}" y1="38" x2="${72 + i * 19}" y2="64"
+      stroke="#475569" stroke-width="1.2"/>`).join('')}
+  ${[...Array(9)].map((_, i) => `<line x1="${72 + i * 19}" y1="196" x2="${72 + i * 19}" y2="222"
+      stroke="#475569" stroke-width="1.2"/>`).join('')}
+  <text x="150" y="24" fill="#93a4cc" font-size="12" text-anchor="middle">N 极</text>
+  <text x="150" y="244" fill="#93a4cc" font-size="12" text-anchor="middle">S 极</text>
+  <text x="46" y="130" fill="#a78bfa" font-size="12.5" text-anchor="middle"
+        transform="rotate(-90 46 130)">电磁铁</text>
+
+  <!-- B field: uniform across the gap, pointing up the page.  The arrows sit
+       strictly BETWEEN the pole faces (y 68 .. 192) so they do not overlap. -->
+  ${[88, 118, 182, 212].map(x => `
+    <line x1="${x}" y1="184" x2="${x}" y2="80" stroke="#a78bfa" stroke-width="1.6"
+      marker-end="url(#ar)" opacity="0.85"/>`).join('')}
+  <text x="286" y="120" fill="#a78bfa" font-size="13" font-weight="600">B = <tspan id="apB">0.00</tspan> T</text>
+
+  <!-- ===== Hg lamp, INSIDE the pole gap ===== -->
+  <circle cx="${lampX}" cy="${beamY}" r="34" fill="#1e293b" stroke="#fbbf24" stroke-width="2"/>
+  <circle cx="${lampX}" cy="${beamY}" r="19" fill="#fbbf24" opacity="0.30"/>
+  <!-- emitter symbol: a small horseshoe lamp -->
+  <path d="M ${lampX - 11} ${beamY + 12} L ${lampX - 11} ${beamY - 4}
+           A 11 11 0 0 1 ${lampX + 11} ${beamY - 4} L ${lampX + 11} ${beamY + 12}"
+        fill="none" stroke="#fbbf24" stroke-width="2.4"/>
+  <text x="${lampX}" y="${beamY + 52}" fill="#fbbf24" font-size="12.5"
+        text-anchor="middle">汞灯 Hg</text>
+  <text x="${lampX}" y="${beamY + 68}" fill="#93a4cc" font-size="11"
+        text-anchor="middle">546.1 nm</text>
+
+  <!-- ===== collimating lens ===== -->
+  <ellipse cx="330" cy="${beamY}" rx="9" ry="42" fill="#4fc3f7" opacity="0.30" stroke="#4fc3f7"/>
+  <text x="330" y="196" fill="#4fc3f7" font-size="11.5" text-anchor="middle">聚透镜</text>
+
+  <!-- ===== quarter-wave plate: surface always ⊥ to the beam ===== -->
+  <g id="apQwpG" style="display:none">
+    ${plate(392, '#fbbf24', 'λ/4 片')}
+    <text x="397" y="214" fill="#fbbf24" font-size="10.5"
+          text-anchor="middle" id="apQwp">λ/4 片</text>
+  </g>
+
+  <!-- ===== polariser: surface always ⊥ to the beam ===== -->
+  <g id="apPolG">
+    ${plate(462, '#f472b6', '偏振片')}
+    <text x="467" y="214" fill="#f472b6" font-size="10.5"
+          text-anchor="middle" id="apPol">偏振片</text>
+  </g>
+
+  <!-- ===== transmission-axis dial ======================================
+       A top view cannot show a direction lying in the plane perpendicular to
+       the page, so the element's TRANSMISSION AXIS gets its own face-on dial
+       (the "正视" circle): B is drawn pointing up, and the axis is drawn the
+       way a physicist would write it —
+         ·  a line  when the axis lies in the page of the top view
+         ⊗/⊙        when it points into / out of the page (i.e. axis ⊥ B)
+       The bar on the optical axis is the element itself, always ⊥ to the beam. -->
+  <g id="apAx">
+    <line x1="472" y1="130" x2="562" y2="130" stroke="rgba(244,114,182,.35)"
+          stroke-width="1" stroke-dasharray="3 3"/>
+    <circle cx="600" cy="130" r="34" fill="#0d1428" stroke="rgba(140,170,240,.3)"/>
+    <text x="600" y="106" fill="#93a4cc" font-size="9" text-anchor="middle">正视偏振片</text>
+    <!-- B reference, pointing up in the transverse plane -->
+    <line x1="600" y1="130" x2="600" y2="114" stroke="#a78bfa" stroke-width="1.8"
+          marker-end="url(#ar)"/>
+    <text x="609" y="120" fill="#a78bfa" font-size="9">B</text>
+    <g id="apAxPol">
+      <line x1="600" y1="148" x2="600" y2="112" stroke="#f472b6"
+            stroke-width="3" stroke-linecap="round"/>
+    </g>
+    <text x="600" y="166" fill="#f472b6" font-size="10.5" text-anchor="middle" id="apAxTxt">—</text>
+  </g>
+
+  <!-- ===== Fabry-Perot etalon: plates ⊥ to the beam ===== -->
+  <g>
+    <rect x="668" y="88" width="8" height="84" rx="2" fill="#93a4cc" opacity="0.75"/>
+    <rect x="700" y="88" width="8" height="84" rx="2" fill="#93a4cc" opacity="0.75"/>
+    <line x1="672" y1="88" x2="672" y2="172" stroke="#fbbf24" stroke-width="0.8" opacity="0.35" stroke-dasharray="3 3"/>
+    <line x1="704" y1="88" x2="704" y2="172" stroke="#fbbf24" stroke-width="0.8" opacity="0.35" stroke-dasharray="3 3"/>
+    <text x="688" y="196" fill="#93a4cc" font-size="11.5" text-anchor="middle">Fabry–Perot</text>
+    <text x="688" y="210" fill="#93a4cc" font-size="10.5" text-anchor="middle" id="apD">d = 1.00 mm</text>
+  </g>
+
+  <!-- ===== imaging lens + CCD ===== -->
+  <ellipse cx="778" cy="${beamY}" rx="7" ry="34" fill="#4fc3f7" opacity="0.22" stroke="#4fc3f7"/>
+  <rect x="812" y="106" width="46" height="48" rx="5" fill="#1e293b" stroke="#60a5fa" stroke-width="1.6"/>
+  <circle cx="835" cy="130" r="13" fill="#60a5fa" opacity="0.20"/>
+  <text x="835" y="196" fill="#60a5fa" font-size="12" text-anchor="middle">CCD</text>
+  <text x="835" y="210" fill="#93a4cc" font-size="10.5" text-anchor="middle">干涉环</text>
+
+  <!-- ===== beam: starts at the lamp, inside the magnet ===== -->
+  <line x1="${lampX + 34}" y1="${beamY}" x2="812" y2="${beamY}" stroke="url(#beam)" stroke-width="2.4"/>
+  <text x="470" y="52" fill="#4ade80" font-size="12" text-anchor="middle">546.1 nm 绿光</text>
+  <text x="470" y="232" fill="#93a4cc" font-size="11" text-anchor="middle">
+    汞灯（磁隙内） → 聚透镜 → <tspan id="apTrainQ" fill="#fbbf24">λ/4 片</tspan> → 偏振片 → Fabry–Perot → 成像透镜 → CCD</text>
+  </svg>`;
+}
+
+/* ---------------------------------------------------------------- events */
+$('sldB').addEventListener('input', e=>setB(+e.target.value));
+$('sldI').addEventListener('input', e=>setI(+e.target.value));
+$('btnZero').addEventListener('click', ()=>{ $('sldI').value=0; setI(0); });
+$('btnMax').addEventListener('click', ()=>{ $('sldI').value=6; setI(6); });
+
+$('sldRes').addEventListener('input', e=>{
+  st.resolutionLorentz = +e.target.value;
+  $('lblRes').textContent = st.resolutionLorentz.toFixed(3)+' L';
+  draw();
+});
+$('sldFov').addEventListener('input', e=>{
+  st.fovDeg = +e.target.value;
+  $('lblFov').textContent = st.fovDeg.toFixed(1)+'°';
+  // a different field of view changes which orders are reachable, so the
+  // reference measurement and everything derived from it must be redone
+  st.session.ref = null;
+  st.session.rows = [];
+  if (typeof updateKHint === 'function') { updateKHint(); updatePairHint(); refreshTable(); }
+  draw();
+});
+
+function bindSeg(id, cb){
+  $(id).addEventListener('click', e=>{
+    const b = e.target.closest('button'); if(!b) return;
+    [...$(id).querySelectorAll('button')].forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); cb(b);
+  });
+}
+bindSeg('segView', b=>{
+  st.view = b.dataset.v;
+  st.session.geom.view = st.view;
+  updateQwpDial();     // the QWP only applies looking along B
+  draw();   // syncApparatus() refreshes the hint text
+});
+/* ---------------------------------------------- rotatable polariser (0–360°) */
+/* st.polariser: null = removed, otherwise an angle in degrees (0 = ∥B). */
+function buildDialTicks(){
+  const g = $('dialTicks');
+  if(!g) return;
+  let s = '';
+  for (let a = 0; a < 360; a += 10) {
+    const major = a % 30 === 0;
+    const r0 = major ? 34 : 38, r1 = 43;
+    const rad = (a - 90) * Math.PI / 180;      // 0 deg points up (= B)
+    const x0 = 50 + r0 * Math.cos(rad), y0 = 50 + r0 * Math.sin(rad);
+    const x1 = 50 + r1 * Math.cos(rad), y1 = 50 + r1 * Math.sin(rad);
+    s += `<line x1="${x0.toFixed(2)}" y1="${y0.toFixed(2)}" x2="${x1.toFixed(2)}" y2="${y1.toFixed(2)}"
+           stroke="${major ? '#93a4cc' : 'rgba(147,164,204,.45)'}" stroke-width="${major ? 1.4 : 0.8}"/>`;
+    if (major) {
+      const rl = 24;
+      const tx = 50 + rl * Math.cos(rad), ty = 50 + rl * Math.sin(rad) + 2.6;
+      // keep every label upright: flip the ones on the lower half
+      const deg = ((a % 360) + 360) % 360;
+      const flip = deg > 90 && deg < 270;
+      s += `<text x="${tx.toFixed(2)}" y="${ty.toFixed(2)}" fill="#93a4cc" font-size="6.6"
+             text-anchor="middle"${flip ? ` transform="rotate(180 ${tx.toFixed(2)} ${ty.toFixed(2)})"` : ''}>${deg}</text>`;
+    }
+  }
+  g.innerHTML = s;
+}
+
+function setPolariser(v){
+  // v === null  -> removed;  otherwise 0..359 degrees
+  st.polariser = (v === null || v === undefined) ? null : ((v % 360) + 360) % 360;
+  st.session.geom.polariser = st.polariser;
+  $('sldPol').value = st.polariser === null ? 0 : st.polariser;
+  updateDial();
+  draw();
+}
+
+function updateDial(){
+  const on = st.polariser !== null;
+  const a = on ? st.polariser : 0;
+  $('lblPol').textContent = on ? a.toFixed(0) + '°' : '无（已移除）';
+  $('lblPol').style.color = on ? 'var(--accent)' : 'var(--dim)';
+  $('polDial').style.opacity = on ? '1' : '0.35';
+
+  // rotate the transmission axis (line is drawn pointing up at 0 deg)
+  const g = $('dialAxis');
+  if (g) g.setAttribute('transform', `rotate(${a} 50 50)`);
+
+  // preset highlight (scoped to this dial's own field)
+  document.querySelectorAll('#polField .mini').forEach(b=>{
+    const v = b.dataset.a;
+    b.classList.toggle('on',
+      (v === 'off' && !on) || (v !== 'off' && on && +v === a));
+  });
+
+  // Malus transmission bars: pi ∥B, sigma ⊥B
+  const wPi = P.polariserWeight(on ? a : 'none', true);
+  const wSg = P.polariserWeight(on ? a : 'none', false);
+  const b1 = $('dialBarPi'), b2 = $('dialBarSigma');
+  if (b1) b1.setAttribute('width', (72 * wPi).toFixed(1));
+  if (b2) b2.setAttribute('width', (72 * wSg).toFixed(1));
+
+  const hint = $('polHint');
+  if (hint) {
+    hint.innerHTML = on
+      ? (st.view === 'para'
+          ? `沿 B 观察：圆偏振经线偏振片恒减半 → <b>50%</b>，与角度无关`
+          : `马吕斯定律：π 透射 <b>${(wPi * 100).toFixed(0)}%</b>（∥B），σ 透射 <b>${(wSg * 100).toFixed(0)}%</b>（⊥B）`)
+      : '未放置偏振片：全部 9 条分量可见';
+  }
+}
+
+/* drag / click on the dial to set the angle */
+(function initDial(){
+  const hit = $('polHit');
+  if (!hit) return;
+  let dragging = false;
+  const angleFrom = (ev) => {
+    const r = hit.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const dx = ev.clientX - cx, dy = ev.clientY - cy;
+    // screen angle -> compass angle with 0 = up, increasing clockwise
+    let deg = Math.atan2(dx, -dy) * 180 / Math.PI;
+    if (deg < 0) deg += 360;
+    return Math.round(deg);
+  };
+  const move = (ev) => { if (dragging) { ev.preventDefault(); setPolariser(angleFrom(ev)); } };
+  hit.addEventListener('pointerdown', ev => {
+    dragging = true; hit.setPointerCapture(ev.pointerId);
+    setPolariser(angleFrom(ev));
+  });
+  hit.addEventListener('pointermove', move);
+  hit.addEventListener('pointerup', ev => {
+    dragging = false;
+    try { hit.releasePointerCapture(ev.pointerId); } catch (e) {}
+  });
+  hit.addEventListener('pointercancel', () => { dragging = false; });
+})();
+
+/* ------------------------------------- quarter-wave plate (only along B) -----
+   The plate is a linear retarder: it delays the slow axis by lambda/4, which
+   turns the CIRCULAR polarisation of the sigma lines (seen looking along B)
+   into LINEAR polarisation whose direction is rotated by TWICE the plate
+   angle.  A linear polariser behind it can then separate the two circular
+   groups completely -- this is the standard way to isolate sigma+ from sigma-.
+
+   Looking perpendicular to B the light is already linear, so a QWP would only
+   make it elliptical and the plate is disabled. */
+function buildQwpTicks(){
+  const g = $('qwpTicks');
+  if(!g) return;
+  let s = '';
+  for (let a = 0; a < 180; a += 5) {
+    const major = a % 30 === 0;
+    const r0 = major ? 34 : 38, r1 = 43;
+    const rad = (a - 90) * Math.PI / 180;
+    const x0 = 50 + r0 * Math.cos(rad), y0 = 50 + r0 * Math.sin(rad);
+    const x1 = 50 + r1 * Math.cos(rad), y1 = 50 + r1 * Math.sin(rad);
+    s += `<line x1="${x0.toFixed(2)}" y1="${y0.toFixed(2)}" x2="${x1.toFixed(2)}" y2="${y1.toFixed(2)}"
+           stroke="${major ? '#93a4cc' : 'rgba(147,164,204,.45)'}" stroke-width="${major ? 1.4 : 0.8}"/>`;
+    if (major) {
+      const rl = 24;
+      const tx = 50 + rl * Math.cos(rad), ty = 50 + rl * Math.sin(rad) + 2.6;
+      s += `<text x="${tx.toFixed(2)}" y="${ty.toFixed(2)}" fill="#93a4cc" font-size="6.6"
+             text-anchor="middle">${a}</text>`;
+    }
+  }
+  g.innerHTML = s;
+}
+
+function setQWP(v){
+  // v === null -> plate removed; otherwise the fast-axis angle in degrees (0..179)
+  st.qwp = (v === null || v === undefined) ? null : ((Math.round(v) % 180) + 180) % 180;
+  st.session.geom.qwp = st.qwp;
+  $('sldQwp').value = st.qwp === null ? 0 : st.qwp;
+  updateQwpDial();
+  draw();
+}
+
+function updateQwpDial(){
+  const active = st.view === 'para';          // plate only works looking along B
+  const on = st.qwp !== null;
+  const a = on ? st.qwp : 0;
+  const field = $('qwpField');
+  if (field) field.classList.toggle('off', !active);
+
+  $('lblQwp').textContent = !active ? '不适用（需沿 B 观察）'
+    : on ? a.toFixed(0) + '°' : '未插入';
+  $('lblQwp').style.color = !active ? 'var(--dim)'
+    : on ? 'var(--accent)' : 'var(--dim)';
+
+  $('sldQwp').disabled = !active;
+  document.querySelectorAll('.qwp-field .mini').forEach(b => { b.disabled = !active; });
+  const combo = $('btnCombo');
+  if (combo) {
+    combo.disabled = !active;
+    combo.textContent = st.qwp !== null && st.polariser !== null
+      ? '✓ 已配置：波片 + 检偏片（可单独调节）'
+      : '一键配置：波片 + 检偏片';
+  }
+  $('qwpAxis').style.display = (on && active) ? '' : 'none';
+  $('qwpDial').style.opacity = (on && active) ? '1' : '0.4';
+
+  // rotate the fast axis (drawn pointing up at 0 deg); slow axis is 90 deg away
+  $('qwpFast').setAttribute('transform', `rotate(${a} 50 50)`);
+  $('qwpSlow').setAttribute('transform', `rotate(${a} 50 50)`);
+
+  // preset highlight
+  document.querySelectorAll('.qwp-field .mini').forEach(b=>{
+    const v = b.dataset.q;
+    b.classList.toggle('on',
+      (v === 'off' && !on) || (v !== 'off' && on && Math.abs(+v - a) < 0.5));
+  });
+
+  // Transmission bars for the two circular groups.  A QWP alone cannot
+  // separate circular light -- without an analyser behind it both groups pass,
+  // so show that honestly rather than a misleading "100 % /100 %" that looks
+  // like a successful separation.
+  const analyser = st.polariser !== null;
+  const wSp = on && active ? P.qwpWeight(a, st.polariser, +1) : 1;
+  const wSm = on && active ? P.qwpWeight(a, st.polariser, -1) : 1;
+  const b1 = $('qwpBarSp'), b2 = $('qwpBarSm');
+  if (b1) b1.setAttribute('width', (70 * wSp).toFixed(1));
+  if (b2) b2.setAttribute('width', (70 * wSm).toFixed(1));
+
+  const hint = $('qwpHint');
+  if (hint) {
+    if (!active) {
+      hint.innerHTML = '⊥B 观察时光本就是线偏振，波片只会把它变成椭圆偏振，' +
+                       '<b>不起分选作用</b>。切到「∥B 观察」以启用。';
+    } else if (!on) {
+      hint.innerHTML = '未插入波片：6 条 σ 线圆偏振，线偏振片只能<b>各减半</b>、无法区分左右旋。';
+    } else if (!analyser) {
+      hint.innerHTML =
+        `波片把圆偏振转为线偏振，方向 <b>2×${a}° = ${((2 * a) % 180).toFixed(0)}°</b>（倍角效应）<br>` +
+        `<b style="color:var(--warn)">但后方没有检偏片</b>——线偏振再转回观察者眼里仍是圆偏振，` +
+        `两组仍各 100% 通过。需插入偏振片才能分选。`;
+    } else {
+      const turned = ((2 * a) % 180 + 180) % 180;
+      const sep = P.qwpIsSeparator(a, st.polariser);
+      hint.innerHTML =
+        `波片把圆偏振转为线偏振，方向 <b>2×${a}° = ${turned}°</b>（倍角效应）<br>` +
+        `σ⁺ 透射 <b>${(wSp * 100).toFixed(0)}%</b>　σ⁻ 透射 <b>${(wSm * 100).toFixed(0)}%</b>` +
+        (sep ? '　<b style="color:var(--ok)">← 完全分离</b>' : '');
+    }
+  }
+}
+
+/* drag / click on the QWP dial */
+(function initQwpDial(){
+  const hit = $('qwpHit');
+  if (!hit) return;
+  let dragging = false;
+  const angleFrom = (ev) => {
+    const r = hit.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const dx = ev.clientX - cx, dy = ev.clientY - cy;
+    let deg = Math.atan2(dx, -dy) * 180 / Math.PI;
+    if (deg < 0) deg += 360;
+    return Math.round(deg) % 180;             // plate axis is 180-deg periodic
+  };
+  const move = (ev) => { if (dragging) { ev.preventDefault(); setQWP(angleFrom(ev)); } };
+  hit.addEventListener('pointerdown', ev => {
+    if (st.view !== 'para') return;            // inert while disabled
+    dragging = true; hit.setPointerCapture(ev.pointerId);
+    setQWP(angleFrom(ev));
+  });
+  hit.addEventListener('pointermove', move);
+  hit.addEventListener('pointerup', ev => {
+    dragging = false;
+    try { hit.releasePointerCapture(ev.pointerId); } catch (e) {}
+  });
+  hit.addEventListener('pointercancel', () => { dragging = false; });
+})();
+bindSeg('segMode', b=>{
+  st.mode = b.dataset.m;
+  document.body.classList.toggle('teacher', st.mode==='teacher');
+  $('modeHint').textContent = st.mode==='teacher'
+    ? '教师模式：显示理论值、μ_B 拟合结果与级次反解过程'
+    : '学生模式：隐藏理论值与拟合结果，先自行测量';
+  refreshResult(); draw();
+});
+
+['sldD','sldF','sldR'].forEach(id=>{
+  $(id).addEventListener('input', e=>{
+    P.FP.d_mm = +$('sldD').value;
+    P.FP.f_mm = +$('sldF').value;
+    P.FP.R    = +$('sldR').value;
+    $('lblD').textContent = P.FP.d_mm.toFixed(2)+' mm';
+    $('lblF').textContent = P.FP.f_mm.toFixed(0)+' mm';
+    $('lblR').textContent = P.FP.R.toFixed(2);
+    const apD = $('apD'); if(apD) apD.textContent = 'd = '+P.FP.d_mm.toFixed(1)+' mm';
+    draw();
+  });
+});
+
+/* ------------------------------------------------- measurement: two-step UI */
+/* Step 1 needs a fixed field of B = 0; step 2 uses the current field.  The
+   session always observes perpendicular to B with the polariser removed, so
+   all nine components are present and the 1..9 line numbering is meaningful. */
+function measOpts(){ return { thetaMaxDeg: st.fovDeg }; }
+
+function updateKHint(){
+  const k = st.orderK;
+  const th = st.fovDeg * Math.PI / 180;
+  const nRings = P.FP.ringCount(th);
+  const m = k - 1;
+  // resolvability: spacing between neighbouring lines of the group vs ring FWHM
+  const c = P.components(0.9);
+  const rs = c.map(x => P.ringRadius(m, x.lambda_nm, P.FP)).sort((a, b) => a - b);
+  const sep = (rs[8] - rs[0]) / 8;
+  const rIn = P.zeroFieldDiameter(m, P.FP) / 2;
+  const rIn1 = P.zeroFieldDiameter(m + 1, P.FP) / 2;
+  const fwhm = (rIn - rIn1) / P.FP.finesse;
+  const res = sep / fwhm;
+  $('hintK').innerHTML = '第 2 步在 <b>m = ' + m + '</b> 级上测量　视场 ' + th.toFixed(2) +
+    '° 内约 ' + nRings.toFixed(0) + ' 个零场环<br>分裂后组内相邻线间距 ' +
+    (sep * 1000).toFixed(1) + ' μm，环宽 ' + (fwhm * 1000).toFixed(1) +
+    ' μm → 分辨率 <b>' + res.toFixed(2) + '</b>' +
+    (res < 1 ? '<span style="color:var(--warn)">（过小，9 线难分）</span>' : '');
+}
+
+function updatePairHint(){
+  const pr = st.session.pair();
+  const ref = st.session.ref;
+  let extra = '';
+  if (ref) {
+    const m = ref.k - 1;
+    const c = P.components(0.9);
+    const r3 = P.splitDiameter(m, pr.inner, 0.9, P.FP);
+    const r7 = P.splitDiameter(m, pr.outer, 0.9, P.FP);
+    extra = '<br>在 B = 0.9 T 时，第 ' + pr.inner + ' 与第 ' + pr.outer +
+      ' 条环直径相差 <b>' + (r7 - r3).toFixed(4) + ' mm</b>';
+  }
+  $('hintPair').innerHTML = '两环关于 δ = 0 对称（δ = ±' + pr.d0 +
+    ' 洛伦兹单位），ΔD² 严格正比于 B' + extra;
+}
+
+$('sldK').addEventListener('input', e => {
+  st.orderK = +e.target.value;
+  $('lblK').textContent = 'k = ' + st.orderK;
+  // changing the reference order invalidates everything downstream
+  st.session.ref = null;
+  st.session.rows = [];
+  updateKHint(); updatePairHint(); refreshTable(); draw();
+});
+
+bindSeg('segPair', b => {
+  st.session.setPair(+b.dataset.p);
+  st.session.rows = [];
+  updatePairHint(); refreshTable(); draw();
+});
+
+$('btnRef').addEventListener('click', () => {
+  const keepB = st.B, keepI = st.I;
+  // step 1 is defined at B = 0, so drive the field there for the measurement
+  setB(0); setI(0);
+  const res = st.session.measureReference(st.orderK, measOpts());
+  st.B = keepB; st.I = keepI;
+  $('sldB').value = keepB; $('lblB').textContent = keepB.toFixed(2) + ' T';
+  $('sldI').value = keepI; $('lblI').textContent = keepI.toFixed(2) + ' A';
+  draw();
+  if (!res.ok) { st.session.ref = null; showNotice(res.reason, true); refreshTable(); return; }
+  st.session.rows = [];
+  showNotice('', false);
+  updatePairHint();
+  refreshTable();
+});
+
+$('btnMeasure').addEventListener('click', () => {
+  const res = st.session.measurePair(st.B, st.I, measOpts());
+  if (!res.ok) { showNotice(res.reason, true); return; }
+  showNotice('', false);
+  refreshTable();
+});
+
+$('btnSweep').addEventListener('click', () => {
+  const keepB = st.B, keepI = st.I;
+  const res = st.session.sweep(
+    [0.50, 0.65, 0.80, 0.95, 1.05], st.orderK, measOpts());
+  st.B = keepB; st.I = keepI;
+  $('sldB').value = keepB; $('lblB').textContent = keepB.toFixed(2) + ' T';
+  $('sldI').value = keepI; $('lblI').textContent = keepI.toFixed(2) + ' A';
+  draw(); updatePairHint(); refreshTable();
+  const fails = (res.log || []).filter(x => !x.ok);
+  if (fails.length) {
+    // Report inline rather than in a modal: a sweep can legitimately miss the
+    // weakest field (the lines are not resolved there), and a blocking alert
+    // for an expected outcome trains the student to dismiss it.
+    showNotice('扫描完成，' + fails.length + ' 点未成功：' +
+      fails.map(f => (f.B != null ? f.B.toFixed(2) + ' T' : '第 1 步')).join('、') +
+      '。低场下相邻谱线未完全分辨属正常现象，可提高磁场或改用第 3 / 7 条（间距更大）。', true);
+  } else {
+    showNotice('', false);
+  }
+});
+
+$('btnClear').addEventListener('click', () => {
+  st.session.ref = null;
+  st.session.rows = [];
+  showNotice('', false);
+  refreshTable();
+});
+
+/** Inline notice inside the measurement panel (no modal). */
+function showNotice(msg, isWarn){
+  const el = $('measNotice');
+  if (!el) return;
+  el.innerHTML = msg ? msg : '';
+  el.classList.toggle('banner', !!msg);
+  el.classList.toggle('warn', !!isWarn);
+  el.style.display = msg ? '' : 'none';
+}
+
+
+/* ------------------------------------------------------------------ init */
+$('apparatus').innerHTML = apparatusSVG();
+$('lblK').textContent = 'k = ' + st.orderK;
+$('sldK').value = st.orderK;
+updateKHint();
+updatePairHint();
+buildDialTicks();
+buildQwpTicks();
+$('sldPol').addEventListener('input', e => setPolariser(+e.target.value));
+document.querySelectorAll('#polField .mini').forEach(b => {
+  b.addEventListener('click', () => {
+    setPolariser(b.dataset.a === 'off' ? null : +b.dataset.a);
+  });
+});
+updateDial();
+$('sldQwp').addEventListener('input', e => setQWP(+e.target.value));
+document.querySelectorAll('.qwp-field .mini').forEach(b => {
+  b.addEventListener('click', () => {
+    setQWP(b.dataset.q === 'off' ? null : +b.dataset.q);
+  });
+});
+/* One-click setup of the standard separator: analyser at 0 deg, plate at 0 deg
+   -> pure sigma+.  Rotating the plate from there walks through partial mixing
+   to pure sigma- at 45 deg, which is the whole demonstration. */
+$('btnCombo').addEventListener('click', () => {
+  if (st.view !== 'para') return;
+  setPolariser(0);
+  setQWP(0);
+});
+updateQwpDial();
+setI(0);
+refreshTable();
+// push the real etalon spacing into the diagram (the slider handler above
+// only fires on user input, so without this the label keeps its markup default)
+$('lblD').textContent = P.FP.d_mm.toFixed(2) + ' mm';
+$('lblF').textContent = P.FP.f_mm.toFixed(0) + ' mm';
+$('lblR').textContent = P.FP.R.toFixed(2);
+const apD = $('apD'); if (apD) apD.textContent = 'd = ' + P.FP.d_mm.toFixed(2) + ' mm';
+
+// keep apparatus readouts in sync
+const apB = $('apB'), apPol = $('apPol');
+const syncApparatus = ()=>{
+  if(apB) apB.textContent = st.B.toFixed(2);
+
+  /* The polariser SURFACE is always perpendicular to the beam, so its bar in
+     the top view is fixed and is never rotated.  What changes with the dial is
+     the direction of the transmission AXIS inside the transverse plane, which
+     the face-on dial `apAx` shows.  0 deg = axis ∥B (drawn pointing up, since
+     B points up the page); 90 deg = axis ⊥B (pointing out of the page, drawn
+     as a dot). */
+  const g = $('apPolG');
+  const a = st.polariser === null ? 0 : st.polariser;
+  if (g) g.setAttribute('opacity', st.polariser !== null ? '1' : '0.3');
+  const axPol = $('apAxPol');
+  if (axPol) {
+    const on = st.polariser !== null;
+    axPol.setAttribute('opacity', on ? '1' : '0.28');
+    /* Face-on view of the transverse plane.  A line means the axis lies in
+       the page of the top view; ⊗ / ⊙ mean it points into / out of the page,
+       which is the standard way to write a direction normal to the drawing.
+         t = 0deg  axis ∥ B  -> a vertical line (both in the page)
+         t = 90deg axis ⊥ B  -> out of the page -> ⊗
+       Between the two the line tilts accordingly. */
+    const t = ((a % 180) + 180) % 180;             // 180-deg periodicity
+    const rad = t * Math.PI / 180;
+    /* t is measured FROM B, and B is drawn pointing up (in the page).  So the
+       component of the axis along B is cos(t): it vanishes at t = 90 deg, and
+       that is exactly when the axis points out of the page. */
+    const alongB = Math.cos(rad);
+    const outOfPage = Math.abs(alongB) < 1e-6;    // axis ⊥ B
+    if (outOfPage) {
+      // which way does it point?  +90 deg steps the axis around B, so
+      // 0 -> 90 is one sense and 0 -> -90 the other; both are perpendicular.
+      const into = t === 90;
+      axPol.innerHTML =
+        `<circle cx="600" cy="130" r="10" fill="none" stroke="#f472b6" stroke-width="2.4"/>` +
+        `<line x1="600" y1="114" x2="600" y2="146" stroke="#f472b6" stroke-width="2.4"/>` +
+        `<line x1="584" y1="114" x2="616" y2="146" stroke="#f472b6" stroke-width="2.4"/>` +
+        `<circle cx="600" cy="130" r="2.4" fill="#f472b6"/>` +
+        `<text x="600" y="${into ? 104 : 158}" fill="#f472b6" font-size="11"
+              text-anchor="middle">${into ? '⊗' : '⊙'}</text>`;
+    } else {
+      const L = 17 * Math.abs(alongB);
+      axPol.innerHTML =
+        `<line x1="600" y1="${130 + L}" x2="600" y2="${130 - L}"
+               stroke="#f472b6" stroke-width="3" stroke-linecap="round"/>`;
+    }
+  }
+  const axTxt = $('apAxTxt');
+  if (axTxt) {
+    axTxt.textContent = st.polariser === null ? '—' : (((a % 180) + 180) % 180) + '°';
+    axTxt.setAttribute('opacity', st.polariser === null ? '0.4' : '1');
+  }
+  if(apPol) apPol.textContent = st.polariser === null ? '偏振片（无）'
+    : `偏振片 ${(((a % 180) + 180) % 180)}°`;
+
+  // QWP element: drawn only when the plate is actually in the beam
+  const gq = $('apQwpG'), apQwp = $('apQwp'), apTrainQ = $('apTrainQ');
+  const qwpLive = st.qwp !== null && st.view === 'para';
+  if (gq) gq.style.display = qwpLive ? '' : 'none';
+  if (apQwp) apQwp.textContent = st.qwp === null ? 'λ/4 片' : `λ/4 片 ${st.qwp}°`;
+  // the optical-train summary only lists the plate when it is in the beam
+  if (apTrainQ) {
+    apTrainQ.style.display = qwpLive ? '' : 'none';
+    if (qwpLive) apTrainQ.textContent = `λ/4 片 ${st.qwp}°`;
+    const after = apTrainQ.nextSibling;   // the " → 偏振片" text node
+    if (after && after.nodeType === 3) after.nodeValue = qwpLive ? ' → 偏振片' : '偏振片';
+  }
+
+  const g2 = $('geomHint');
+  if (g2) {
+    g2.innerHTML = st.view === 'perp'
+      ? '垂直于 B 观察：π 线偏振 ∥B，σ 线偏振 ⊥B —— 拖动上方转盘连续改变偏振片角度'
+      : (st.qwp === null
+          ? '沿 B 方向观察：只有 σ⁺/σ⁻ 圆偏振，π 不辐射 —— 插入 λ/4 波片可把两组完全分开'
+          : '沿 B 方向观察：λ/4 波片把圆偏振转为线偏振（方向 2φ），配合偏振片分离 σ⁺ / σ⁻');
+  }
+};
+const _draw = draw;
+draw = function(){ _draw(); syncApparatus(); updateDial(); updateQwpDial(); };
+draw();
+
+// re-draw on resize so the canvases always match their new layout box
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { draw(); }, 120);
+});
+
+// expose for headless verification
+window.__ZEEMAN__ = { P, R, M, st, setB, setI, updateKHint, updatePairHint, measOpts };
+})();
+</script>
+</body>
+</html>
