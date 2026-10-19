@@ -16,7 +16,11 @@
     "url": "https://github.com/jiaqihriver/Zeeman-Effect-Interactive-Lab.git"
   },
   "scripts": {
-    "test": "node verify_headless.js"
+    "test": "node test_physics.js",
+    "test:verbose": "node test_physics.js --verbose",
+    "test:cg": "python3 cg_exact.py",
+    "test:browser": "node verify_headless.js",
+    "test:all": "npm run test && npm run test:cg && npm run test:browser"
   },
   "devDependencies": {
     "puppeteer-core": "^24.0.0"

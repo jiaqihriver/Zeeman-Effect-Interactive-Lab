@@ -77,6 +77,11 @@
   Session.prototype.pair = function () { return P.SYMMETRIC_PAIRS[this.pairIdx]; };
   Session.prototype.setPair = function (i) {
     this.pairIdx = Math.max(0, Math.min(P.SYMMETRIC_PAIRS.length - 1, i | 0));
+    /* Switching pair changes d0, and therefore the prefactor that analyse()
+       applies to every recorded DSq.  Drop the stale points here rather than
+       relying on each caller to remember — mixing the two scales the answer
+       by exactly the d0 ratio. */
+    this.rows = [];
     return this.pair();
   };
 
@@ -276,7 +281,9 @@
     log.push({ step: 1, ...r0 });
     if (!r0.ok) return { ok: false, log };
     Bvalues.forEach(B => {
-      const r = this.measurePair(B, 0, opts);
+      // record the current that actually produces this field, so row.I is a
+      // real bench reading rather than a placeholder
+      const r = this.measurePair(B, P.fieldFromCurrent(B), opts);
       log.push({ step: 2, B, ...r });
     });
     return { ok: true, log };
@@ -295,6 +302,19 @@
     if (!this.ref || this.rows.length < 2) return null;
     const m = this.splitOrder();
     const pr = this.pair();
+
+    /* Every row carries the order and the pair it was measured with.  The fit
+       below converts DSq with the CURRENT pair's prefactor, so a data set that
+       mixes pairs or orders would be scaled wrongly — with d0 = 0.5 vs 1.0 the
+       answer comes out exactly 2x off, silently.  Refuse instead. */
+    const bad = this.rows.find(r => r.m !== m || r.d0 !== pr.d0);
+    if (bad) {
+      return {
+        error: '已记录的数据来自不同的测量对或级次（当前：d0 = ' + pr.d0 +
+               '，数据：d0 = ' + bad.d0 + '）。请清空后用同一对重新测量。'
+      };
+    }
+
     let sxy = 0, sxx = 0, sy = 0, n = 0;
     const xs = [], ys = [];
     this.rows.forEach(r => {

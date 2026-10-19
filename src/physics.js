@@ -53,8 +53,9 @@
 
      Values are the squared CG coefficients |⟨J_l m_l ; 1 q | J_u m_u⟩|²,
      obtained independently by diagonalising J² in the uncoupled basis
-     (see tools/cg_exact.py).  Each fixed-m_u slice sums to exactly 1, which is
-     the orthonormality guarantee for the rotation matrix.
+     (see cg_exact.py at the repository root).  Each fixed-m_u slice sums to
+     exactly 1, which is the orthonormality guarantee for the rotation matrix.
+     Both properties are asserted by test_physics.js.
 
        m_l :  q=-1   q=0    q=+1
        +2  :  0.6    -      -
@@ -79,7 +80,6 @@
   }
 
   /* ------------------------------------------------------------------ spectra */
-  const NUD = LINE.upper === 'S1' ? 0 : 0; // vacuum wavenumber of the line
   const NU0 = LEVELS[LINE.upper].E - LEVELS[LINE.lower].E;   // 18307.416 cm^-1
   const LAMBDA0_NM = 1e7 / NU0;                              // 546.227 nm (vacuum)
 
@@ -454,61 +454,14 @@
     return fp.f_mm * Math.tan(Math.acos(c));
   }
 
-  /**
-   * The quantity a student measures: the squared radius of the OUTERMOST ring
-   * (the reddest component, delta = -D/2) as a function of field.
-   *
-   *   r(m, lambda)^2 = f^2 [ (2 n d nu / m)^2 - 1 ],   nu = 1/lambda
-   *
-   * Here 2 n d is in cm and nu in cm^-1, so (2 n d nu / m) is dimensionless
-   * exactly as required.  No extra scaling factors are needed.
-   *
-   * The outermost ring has the SMALLEST wavenumber:
-   *   nu(B) = nu_0 - (D/2) mu_B B /(h c)      [cm^-1]
-   * giving
-   *   r^2(B) = f^2 [ (2 n d nu(B) / m)^2 - 1 ]
-   * which is quadratic in B; over the experimental range the quadratic term is
-   * negligible (1.6e-2 mm^2 out of 1.5e2 mm^2 at 1 T) so a linear fit of r^2
-   * versus B is excellent.
-   */
-  function ringRadiusSqVsB(m, B, D, fp) {
-    const d_cm = fp.d_mm / 10;
-    const shift = (D / 2) * LORENTZ_PER_T * B;         // cm^-1, red side
-    const nu = NU0 - shift;                           // cm^-1
-    const x = 2 * fp.n * d_cm * nu / m;               // dimensionless = cos(theta)
-    return fp.f_mm * fp.f_mm * (x * x - 1);           // mm^2
-  }
-
-  /** Theoretical slope of r^2 vs B (mm^2/T) for the outermost ring. */
-  function ringSlope(m, D, fp) {
-    const d_cm = fp.d_mm / 10;
-    // d(r^2)/dB = 2 f^2 (2nd/m)^2 nu * d(nu)/dB,  d(nu)/dB = -(D/2) LORENTZ_PER_T
-    const k = 2 * fp.n * d_cm / m;                    // cm
-    const dnu = -(D / 2) * LORENTZ_PER_T;             // cm^-1 per T
-    return 2 * fp.f_mm * fp.f_mm * k * k * NU0 * dnu;  // mm^2/T
-  }
-
-  /**
-   * Invert a measured slope d(r^2)/dB to obtain mu_B.
-   *
-   *   slope = -2 f^2 K nu_0 (D/2) mu_B /(h c) / 100      [mm^2/T]
-   *   K     = (2 n d / m)^2  in cm^-2  ->  x 1e4 to give (cm^-1)^2
-   *
-   * Solving for mu_B, with all lengths internally in cm:
-   */
-  function muBFromSlope(slope_mm2_per_T, m, D, fp) {
-    const d_cm = fp.d_mm / 10;
-    const f_cm = fp.f_mm / 10;
-    // slope is in mm^2/T -> cm^2/T  (1 cm^2 = 100 mm^2)
-    const s = Math.abs(slope_mm2_per_T) / 100;          // cm^2/T
-    const k = 2 * fp.n * d_cm / m;                       // cm
-    // |s| = 2 f^2 k^2 nu_0 (D/2) mu_B /(h c)   [cm^2/T]
-    const denom = 2 * f_cm * f_cm * k * k * NU0 * (D / 2);
-    return s * H_C_CM / denom;
-  }
-
-  /** The order D (difference in Lorentz units) for the outermost pair. */
-  const OUTER_D = 4;   // delta_+ = +2, delta_- = -2
+  /* ---------------------------------------------------------------------
+     NOTE: an earlier revision carried ringRadiusSqVsB() / ringSlope() /
+     muBFromSlope() / OUTER_D here, implementing "track one ring versus B".
+     They had no callers — measure.js deliberately uses the two-step
+     symmetric-pair protocol instead — and they assumed the outermost ring is
+     the reddest, which is backwards (see LINE_INDEX_DELTA).  Removed rather
+     than corrected, so the wrong sign cannot be reused by accident.
+     --------------------------------------------------------------------- */
 
   /* ======================================================================
      Real-lab measurement protocol
@@ -528,18 +481,22 @@
    * Line index 1..9 counted from the INNERMOST ring outwards, and its shift
    * in Lorentz units.
    *
-   * A longer wavelength gives a smaller cos(theta) = m lambda/(2nd), hence a
-   * larger angle and a larger radius, so the reddest components (delta < 0)
-   * form the OUTER rings.  The ordering is therefore
+   * A longer wavelength gives a LARGER cos(theta) = m lambda/(2nd), hence a
+   * SMALLER angle and a SMALLER radius.  So the reddest components (delta < 0,
+   * longest lambda) form the INNER rings and the bluest (delta > 0) the outer
+   * ones.  The ordering is therefore
    *
    *   index:1     2     3     4     5     6     7     8     9
    *   delta:-2  -1.5  -1.0  -0.5   0   +0.5  +1.0  +1.5  +2.0
    *
-   * i.e.  delta(index) = 2.5 - index  Lorentz units.  Index 5 is the
+   * i.e.  delta(index) = index - 5  Lorentz units.  Index 5 is the
    * unshifted line (delta = 0) sitting exactly at the zero-field radius, which
    * makes it the natural reference ring.
+   *
+   * This ordering is enforced by test_physics.js against components(), which is
+   * the authority on which wavelength belongs to which delta.
    */
-  const LINE_INDEX_DELTA = [2, 1.5, 1, 0.5, 0, -0.5, -1, -1.5, -2];
+  const LINE_INDEX_DELTA = [-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2];
 
   /** Shift in Lorentz units of the line with the given 1..9 index. */
   function deltaOfLineIndex(idx) {
@@ -680,9 +637,13 @@
     fp = fp || FP;
     const delta = deltaOfLineIndex(lineIndex);
     if (delta === undefined) return NaN;
-    const nu = NU0 - delta * LORENTZ_PER_T * B;   // cm^-1
-    const r = ringRadius(m, nuToLambda(nu), fp);
-    return 2 * r;
+    // Single source of truth: take the wavelength from components(), which
+    // derives nu from the level energies.  Recomputing nu here from NU0 and
+    // the Lorentz shift gave the OPPOSITE sign to components() and silently
+    // mirrored the whole ring ordering; do not reintroduce that second path.
+    const c = components(B).find(x => Math.abs(x.delta - delta) < 1e-9);
+    if (!c) return NaN;
+    return 2 * ringRadius(m, c.lambda_nm, fp);
   }
 
   /**
@@ -746,8 +707,7 @@
     normaliseQWP, qwpWeight, qwpIsSeparator, sigmaGroups,
     visibleComponents, VISIBLE_EPS, nuToLambda, lambdaToNu, meanSpacing,
     linfit, MAGNET, fieldFromCurrent,
-    FP, airy, orderAt, ringRadius, ringRadiusSqVsB, ringSlope,
-    muBFromSlope, OUTER_D,
+    FP, airy, orderAt, ringRadius,
     LINE_INDEX_DELTA, deltaOfLineIndex, lineIndexOfDelta, SYMMETRIC_PAIRS,
     orderFromTwoDiameters, muBFromDiameterPair, diameterPairSlopeScale,
     splitDiameter, zeroFieldDiameter,

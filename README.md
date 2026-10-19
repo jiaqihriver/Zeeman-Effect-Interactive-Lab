@@ -65,13 +65,16 @@ open -a "Google Chrome" index.html
 | `src/physics.js` | 756 | 物理内核：能级、Landé g、CG 系数、9 条分量、Airy 透射、环半径、级次反解、μ_B 反算。零依赖，同时可在 Node 中 `require` |
 | `src/render.js` | 746 | 渲染层：能级图 SVG、光谱 canvas、干涉环 canvas、径向剖面与环检测 |
 | `src/measure.js` | 367 | 测量会话：参考级次标定、谱线对环径测量、扫描、ΔD²–B 直线拟合 |
-| `verify_headless.js` | 209 | Puppeteer 回归测试（零 JS 错误、物理量、测量流程、双模式），并输出截图到 `shots/`（已 gitignore） |
-| `cg_exact.py` | — | 用总角动量 J² 数值对角化独立生成 CG 平方系数，用于校验 `physics.js` 中的硬编码表 |
+| `verify_headless.js` | 209 | Puppeteer 渲染回归（零 JS 错误、画布非空、测量流程、双模式），并输出截图到 `shots/`（已 gitignore）。需要本机 Chrome |
+| `test_physics.js` | — | **物理不变式测试，零依赖、不需要浏览器**，`npm test` 跑的就是它。92 项检查覆盖 CG 正交性、环序↔位移一致性、μ_B 反算、偏振/波片、量程自洽 |
+| `cg_exact.py` | — | 在**固定 M 子空间**内对角化 J² 独立生成 CG 平方系数（块内 J(J+1)互异，本征基唯一），交叉校验 `physics.js` 中的硬编码表 |
 
 ### 1.3 环境要求
 
 - 浏览器：Chrome / Edge / Safari / Firefox 近两年版本（使用 Canvas 2D、Pointer Events、Pointer Capture）
-- 回归测试额外需要：Node.js、`puppeteer-core`、本机 Chrome
+- 物理测试：仅需 Node.js，无第三方依赖
+- CG 交叉校验：Python 3 + numpy（脚本会自行调用 node 读取 `physics.js`）
+- 渲染回归额外需要：`puppeteer-core`、本机 Chrome
 
 ---
 
@@ -255,7 +258,7 @@ SVG 光路图，与侧栏控件**实时联动**：
 | 偏振 | σ⁺ | σ⁺ | σ⁺ | π | π | π | σ⁻ | σ⁻ | σ⁻ |
 | 相对强度 | 1 | 3 | 6 | 3 | 4 | 3 | 6 | 3 | 1 |
 
-> CG 平方系数由 `cg_exact.py` 的 J² 数值对角化独立生成，每个固定 m_u 切片精确求和为 1。**不要手写 Wigner 3j 公式**，前因子极易出错。
+> CG 平方系数由 `cg_exact.py` 在固定 M 子空间内对角化 J² 独立生成，每个固定 m_u 切片精确求和为 1；脚本以 assert 硬校验 7 个 1×1 教科书值，任一处不符即以非零码退出。**不要手写 Wigner 3j 公式**，前因子极易出错。
 
 ### 5.3 Fabry–Perot 环
 
