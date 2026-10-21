@@ -3,6 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Content-Security-Policy.
+     The page loads nothing from the network: three same-directory scripts,
+     one inline stylesheet and one inline script.  Locking that down means a
+     stray <script src="http://..."> or an injected inline handler cannot
+     execute, which matters for a page that is opened straight from disk
+     in a classroom.  'unsafe-inline' is needed for the inline <style> and
+     <script> blocks; everything else is denied outright. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
 <title>塞曼效应交互式模拟器 · Zeeman Effect Interactive Lab</title>
 <style>
   :root{
@@ -235,7 +244,7 @@
       </div>
       <div class="field">
         <label class="row"><span>线圈电流 I</span><span class="val" id="lblI">0.00 A</span></label>
-        <input type="range" id="sldI" min="0" max="6" step="0.02" value="0">
+        <input type="range" id="sldI" min="0" max="6" step="0.01" value="0">
         <div class="hint" id="hintI">B = 1.30·tanh(I / 5.20)　（软磁芯磁饱和）</div>
       </div>
       <div class="btn-row">
@@ -546,6 +555,14 @@ const P = ZeemanPhysics, R = ZeemanRender, M = ZeemanMeasure;
 const $ = id => document.getElementById(id);
 
 /* ------------------------------------------------------------- app state */
+/* Upper limit of the B slider.  It must match the `max` attribute of #sldB
+   below: the field has to stay inside what the magnet can actually produce
+   (1.05 T needs 6.09 A, and the coil is rated to 6 A).  If the two ever
+   disagree, the browser clamps the slider thumb while the label keeps
+   showing the requested value -- the two readouts would then contradict
+   each other.  1.05 T is also comfortably below B_sat = 1.30 T. */
+const B_MAX = 1.05;
+
 const st = {
   B: 0, I: 0,
   view: 'perp', polariser: null,
@@ -556,32 +573,59 @@ const st = {
   session: new M.Session()
 };
 
-function setB(v, fromI){
-  st.B = Math.max(0, Math.min(1.10, v));
+/* The B and I sliders are two views of ONE curve, B = 1.30*tanh(I/5.20).
+   The B slider is capped at 1.05 T, which is below B_sat, so the current the
+   magnet needs for any reachable field always exists (1.05 T needs 6.09 A,
+   within the 6 A limit) and the two readouts can never contradict each other.
+
+   `now` forces an immediate synchronous repaint.  Interactive callers leave
+   it off so that a burst of slider events collapses into one repaint per
+   frame; programmatic callers (regression tests, measurement code) pass true
+   because they read the canvas back immediately afterwards. */
+function setB(v, fromI, now){
+  st.B = Math.max(0, Math.min(B_MAX, v));
+  if(!fromI){
+    // invert B = 1.30 tanh(I/5.20) through the shared inverse, then snap to
+    // the I slider's 0.01 A grid and recompute B from it -- so the displayed
+    // (B, I) pair is always a point ON the calibration curve and always
+    // agrees with both slider thumbs.
+    st.I = Math.max(0, Math.min(P.MAGNET.I_max,
+      Math.round(P.currentFromField(st.B) * 100) / 100));
+    st.B = P.fieldFromCurrent(st.I);
+  }
   $('sldB').value = st.B;
   $('lblB').textContent = st.B.toFixed(2)+' T';
-  if(!fromI){
-    // invert B = 1.30 tanh(I/5.20).  The B slider is capped at1.05 T, which
-    // is below B_sat, so the tanh argument stays well inside its domain and
-    // the current we report here is always one the magnet can actually produce.
-    const r = Math.min(0.999, st.B/P.MAGNET.B_sat);
-    st.I = P.MAGNET.I0*Math.atanh(r);
-    $('sldI').value = st.I;
-    $('lblI').textContent = st.I.toFixed(2)+' A';
-  }
-  draw();
+  $('sldI').value = st.I;
+  $('lblI').textContent = st.I.toFixed(2)+' A';
+  if (now) draw(); else scheduleDraw();
 }
-function setI(v){
+function setI(v, now){
   st.I = Math.max(0, Math.min(P.MAGNET.I_max, v));
   $('sldI').value = st.I;
   $('lblI').textContent = st.I.toFixed(2)+' A';
   st.B = P.fieldFromCurrent(st.I);
   $('sldB').value = st.B;
   $('lblB').textContent = st.B.toFixed(2)+' T';
-  draw();
+  if (now) draw(); else scheduleDraw();
 }
 
 /* ---------------------------------------------------------------- drawing */
+/* Repainting the interference pattern costs tens of milliseconds, and a slider
+   drag fires one 'input' event per pointer move -- so drawing synchronously
+   on every event queues up work the browser then has to grind through.  A
+   rAF-coalesced scheduler collapses any number of pending updates into a
+   single repaint per frame, which is what keeps dragging smooth. */
+let drawPending = false;
+/* Set while a measurement is in flight: the pattern must not be repainted
+   for intermediate field values that are never shown. */
+let suspendDraw = false;
+function scheduleDraw(){
+  if (drawPending) return;
+  drawPending = true;
+  requestAnimationFrame(() => { drawPending = false; draw(); });
+}
+function draw(){
+  if (suspendDraw) return;      // a measurement is in flight; repaint later
 function draw(){
   // geom carries the whole optical train: observation direction, the linear
   // polariser angle, and the QWP fast-axis angle.  Every renderer reads it.
@@ -911,7 +955,7 @@ function apparatusSVG(){
 $('sldB').addEventListener('input', e=>setB(+e.target.value));
 $('sldI').addEventListener('input', e=>setI(+e.target.value));
 $('btnZero').addEventListener('click', ()=>{ $('sldI').value=0; setI(0); });
-$('btnMax').addEventListener('click', ()=>{ $('sldI').value=6; setI(6); });
+$('btnMax').addEventListener('click', ()=>{ $('sldI').value=P.MAGNET.I_max; setI(P.MAGNET.I_max); });
 
 $('sldRes').addEventListener('input', e=>{
   st.resolutionLorentz = +e.target.value;
@@ -938,9 +982,16 @@ function bindSeg(id, cb){
 }
 bindSeg('segView', b=>{
   st.view = b.dataset.v;
-  st.session.geom.view = st.view;
   updateQwpDial();     // the QWP only applies looking along B
   draw();   // syncApparatus() refreshes the hint text
+  // Changing the observation direction invalidates every recorded point:
+  // the 1..9 line numbering only exists in the protocol geometry.
+  if (st.session.rows.length) {
+    st.session.rows = [];
+    refreshTable();
+    showNotice('观察方向已改变，已记录的数据点全部作废（1…9 线序号只在「垂直于 B 观察」下成立）。', true);
+  }
+  checkMeasGeom();
 });
 /* ---------------------------------------------- rotatable polariser (0–360°) */
 /* st.polariser: null = removed, otherwise an angle in degrees (0 = ∥B). */
@@ -972,10 +1023,17 @@ function buildDialTicks(){
 function setPolariser(v){
   // v === null  -> removed;  otherwise 0..359 degrees
   st.polariser = (v === null || v === undefined) ? null : ((v % 360) + 360) % 360;
-  st.session.geom.polariser = st.polariser;
   $('sldPol').value = st.polariser === null ? 0 : st.polariser;
   updateDial();
   draw();
+  // Inserting or removing the polariser changes which components are present,
+  // so any recorded point no longer refers to the same nine rings.
+  if (st.session.rows.length) {
+    st.session.rows = [];
+    refreshTable();
+    showNotice('偏振片状态已改变，已记录的数据点全部作废（测量要求 9 条谱线全部可见）。', true);
+  }
+  checkMeasGeom();
 }
 
 function updateDial(){
@@ -1074,10 +1132,17 @@ function buildQwpTicks(){
 function setQWP(v){
   // v === null -> plate removed; otherwise the fast-axis angle in degrees (0..179)
   st.qwp = (v === null || v === undefined) ? null : ((Math.round(v) % 180) + 180) % 180;
-  st.session.geom.qwp = st.qwp;
   $('sldQwp').value = st.qwp === null ? 0 : st.qwp;
   updateQwpDial();
   draw();
+  // The QWP only acts along B, where the pi lines do not radiate at all --
+  // either way the nine-ring numbering is gone, so recorded points are void.
+  if (st.session.rows.length) {
+    st.session.rows = [];
+    refreshTable();
+    showNotice('波片状态已改变，已记录的数据点全部作废。', true);
+  }
+  checkMeasGeom();
 }
 
 function updateQwpDial(){
@@ -1198,10 +1263,55 @@ bindSeg('segMode', b=>{
 });
 
 /* ------------------------------------------------- measurement: two-step UI */
-/* Step 1 needs a fixed field of B = 0; step 2 uses the current field.  The
-   session always observes perpendicular to B with the polariser removed, so
-   all nine components are present and the 1..9 line numbering is meaningful. */
+/* Step 1 needs a fixed field of B = 0; step 2 uses the current field.
+   The protocol is defined in ONE fixed geometry: perpendicular to B, polariser
+   removed, quarter-wave plate out -- only then are all nine components
+   present and the 1..9 line numbering meaningful.  The measurement code
+   always uses that geometry (M.MEAS_GEOM); this function keeps the panel
+   honest about what the student is currently looking at, and blocks the
+   measurement buttons when the live setup does not match the protocol. */
 function measOpts(){ return { thetaMaxDeg: st.fovDeg }; }
+
+/** Describe how the live geometry differs from the measurement protocol. */
+function measGeomProblem(){
+  if (st.view !== 'perp')
+    return '当前为「沿 B 观察」：π 线不辐射，只有 6 条 σ 线，1…9 的线序号失去意义。';
+  if (st.polariser !== null)
+    return '偏振片未移除：部分分量被滤掉，9 条谱线不再全部可见。';
+  if (st.qwp !== null)
+    return 'λ/4 波片未取出。';
+  return '';
+}
+
+/** Reflect the geometry state in the panel header and the measure buttons. */
+function checkMeasGeom(){
+  const problem = measGeomProblem();
+  const sub = $('subMeas');
+  if (sub) {
+    if (problem) {
+      sub.textContent = '⚠ 测量需要「垂直于 B 观察 · 偏振片移除 · λ/4 片取出」——' + problem;
+      sub.style.color = 'var(--warn)';
+    } else {
+      sub.textContent = '垂直于 B 观察 · 偏振片移除 · 9 条谱线全部可见';
+      sub.style.color = '';
+    }
+  }
+  ['btnRef', 'btnMeasure', 'btnSweep'].forEach(id => {
+    const b = $(id); if (b) b.disabled = !!problem;
+  });
+  return !problem;
+}
+
+/* Run an action with the canvas repaints suppressed.  The measurement
+   buttons temporarily move the field to B = 0 (and back), and the pattern
+   would otherwise be repainted three times for one click -- the intermediate
+   frames are never seen anyway, since the whole operation is synchronous. */
+function withoutRedraw(fn){
+  const was = suspendDraw;
+  suspendDraw = true;
+  try { return fn(); }
+  finally { suspendDraw = was; }
+}
 
 function updateKHint(){
   const k = st.orderK;
@@ -1254,13 +1364,18 @@ bindSeg('segPair', b => {
 });
 
 $('btnRef').addEventListener('click', () => {
+  if (!checkMeasGeom()) { showNotice(measGeomProblem(), true); return; }
   const keepB = st.B, keepI = st.I;
   // step 1 is defined at B = 0, so drive the field there for the measurement
-  setB(0); setI(0);
-  const res = st.session.measureReference(st.orderK, measOpts());
-  st.B = keepB; st.I = keepI;
-  $('sldB').value = keepB; $('lblB').textContent = keepB.toFixed(2) + ' T';
-  $('sldI').value = keepI; $('lblI').textContent = keepI.toFixed(2) + ' A';
+  const res = withoutRedraw(() => {
+    setB(0, false, true);
+    setI(0, true);
+    const r = st.session.measureReference(st.orderK, measOpts());
+    st.B = keepB; st.I = keepI;
+    $('sldB').value = keepB; $('lblB').textContent = keepB.toFixed(2) + ' T';
+    $('sldI').value = keepI; $('lblI').textContent = keepI.toFixed(2) + ' A';
+    return r;
+  });
   draw();
   if (!res.ok) { st.session.ref = null; showNotice(res.reason, true); refreshTable(); return; }
   st.session.rows = [];
@@ -1270,6 +1385,15 @@ $('btnRef').addEventListener('click', () => {
 });
 
 $('btnMeasure').addEventListener('click', () => {
+  if (!checkMeasGeom()) { showNotice(measGeomProblem(), true); return; }
+  // Recording the same field twice would make the fit singular, so refuse it
+  // here with a clear message instead of letting it surface as a broken fit.
+  const dup = st.session.rows.some(r => Math.abs(r.B - st.B) < 1e-6);
+  if (dup) {
+    showNotice('B = ' + st.B.toFixed(3) + ' T 处已记录过数据点。' +
+      '拟合需要 <b>不同</b> B 值下的点，请改变磁场后再记录。', true);
+    return;
+  }
   const res = st.session.measurePair(st.B, st.I, measOpts());
   if (!res.ok) { showNotice(res.reason, true); return; }
   showNotice('', false);
@@ -1277,9 +1401,10 @@ $('btnMeasure').addEventListener('click', () => {
 });
 
 $('btnSweep').addEventListener('click', () => {
+  if (!checkMeasGeom()) { showNotice(measGeomProblem(), true); return; }
   const keepB = st.B, keepI = st.I;
-  const res = st.session.sweep(
-    [0.50, 0.65, 0.80, 0.95, 1.05], st.orderK, measOpts());
+  const res = withoutRedraw(() => st.session.sweep(
+    [0.50, 0.65, 0.80, 0.95, 1.05], st.orderK, measOpts()));
   st.B = keepB; st.I = keepI;
   $('sldB').value = keepB; $('lblB').textContent = keepB.toFixed(2) + ' T';
   $('sldI').value = keepI; $('lblI').textContent = keepI.toFixed(2) + ' A';
@@ -1347,6 +1472,7 @@ $('btnCombo').addEventListener('click', () => {
 updateQwpDial();
 setI(0);
 refreshTable();
+checkMeasGeom();
 // push the real etalon spacing into the diagram (the slider handler above
 // only fires on user input, so without this the label keeps its markup default)
 $('lblD').textContent = P.FP.d_mm.toFixed(2) + ' mm';
