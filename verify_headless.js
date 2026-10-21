@@ -103,13 +103,15 @@ function near(a, b, tol) { return Math.abs(a - b) <= tol; }
         strengthRatios: sorted.map(x => +(x.strength * 10).toFixed(3)),
         span1T_cm1: +(4 * P.LORENTZ_PER_T).toFixed(4),
         muB: P.MU_B,
-        // the magnet curve must be self-consistent: the field reachable at
-        // I_max, and its inverse, have to agree with the slider bounds
+        // The magnet curve must be self-consistent: the field the UI allows
+        // must be reachable by the current the UI allows.  The B slider's
+        // upper limit is the markup's `max` attribute (the app clamps to the
+        // same value), and the current it demands must fit inside I_max.
         magnet: {
-          B_max: +P.MAGNET.B_max.toFixed(6),
-          I_max: +P.MAGNET.I_max.toFixed(4),
+          B_max: +document.getElementById('sldB').max,
+          I_max: +P.MAGNET.I_max,
           B_at_Imax: +P.fieldFromCurrent(P.MAGNET.I_max).toFixed(6),
-          I_at_Bmax: +P.currentFromField(P.MAGNET.B_max).toFixed(4)
+          I_at_Bmax: +P.currentFromField(+document.getElementById('sldB').max).toFixed(4)
         }
       };
     });
@@ -129,12 +131,11 @@ function near(a, b, tol) { return Math.abs(a - b) <= tol; }
       JSON.stringify(R.physics.strengthRatios) === JSON.stringify(wantRatios),
       JSON.stringify(R.physics.strengthRatios));
     check('total span at 1 T = 1.8675 cm^-1', near(R.physics.span1T_cm1, 1.8675, 1e-4), R.physics.span1T_cm1);
-    check('magnet curve: B(I_max) matches B_max',
-      near(R.physics.magnet.B_at_Imax, R.physics.magnet.B_max, 1e-3),
-      R.physics.magnet.B_at_Imax + ' vs ' + R.physics.magnet.B_max);
-    check('magnet curve: inverse is consistent',
-      near(R.physics.magnet.I_at_Bmax, R.physics.magnet.I_max, 0.011),
-      R.physics.magnet.I_at_Bmax + ' vs ' + R.physics.magnet.I_max);
+    // the current needed at the top of the B range must fit inside I_max,
+    // otherwise the two sliders would contradict each other at the end stop
+    check('magnet curve: the top of the B range fits inside I_max',
+      R.physics.magnet.I_at_Bmax <= R.physics.magnet.I_max + 1e-9,
+      R.physics.magnet.I_at_Bmax + ' A needed vs ' + R.physics.magnet.I_max + ' A available');
 
     // ---------- 2b. the public API surface stays self-consistent ----------
     // These functions are not used by the app itself, but they are part of
@@ -146,22 +147,10 @@ function near(a, b, tol) { return Math.abs(a - b) <= tol; }
       const comps = P.components(B);
       const out = {};
 
-      // the deprecated single-ring helpers must still invert to mu_B
-      const slope = P.ringSlope(m, D, P.FP);
-      out.slopeMuB = P.muBFromSlope(slope, m, D, P.FP);
-
-      // ...and the ring they track must be the REDDEST one, i.e. the
-      // INNERMOST ring of the group.  (The old comment claimed "outermost",
-      // which is backwards: a longer wavelength gives a larger cos(theta)
-      // and hence a smaller angle.)
-      const r = Math.sqrt(P.ringRadiusSqVsB(m, B, D, P.FP));
-      let best = null, bd = Infinity;
-      comps.forEach(c => {
-        const rr = P.ringRadius(m, c.lambda_nm, P.FP);
-        const d = Math.abs(rr - r);
-        if (d < bd) { bd = d; best = c; }
-      });
-      out.trackedDelta = best.delta;
+      // the single-ring helpers of the old protocol were removed outright;
+      // make sure they did not come back with their old sign assumption
+      out.legacyGone = ['ringRadiusSqVsB', 'ringSlope', 'muBFromSlope', 'OUTER_D']
+        .every(k => P[k] === undefined);
 
       // delta -> index -> delta must round-trip for all nine lines
       out.roundTripOk = [2, 1.5, 1, 0.5, 0, -0.5, -1, -1.5, -2]
@@ -182,10 +171,7 @@ function near(a, b, tol) { return Math.abs(a - b) <= tol; }
       out.maxOrder = P.maxOrder();
       return out;
     });
-    check('deprecated single-ring helpers still invert to mu_B',
-      near(R.api.slopeMuB, R.physics.muB, R.physics.muB * 1e-3), R.api.slopeMuB);
-    check('single-ring helper tracks the REDDEST (innermost) ring',
-      R.api.trackedDelta === -2, R.api.trackedDelta);
+    check('removed single-ring helpers did not come back', R.api.legacyGone);
     check('delta <-> line-index round-trips for all 9 lines', R.api.roundTripOk);
     check('meanSpacing works on raw components', R.api.spacingRaw > 0, R.api.spacingRaw);
     check('meanSpacing honours the visibility filter',

@@ -626,7 +626,6 @@ function scheduleDraw(){
 }
 function draw(){
   if (suspendDraw) return;      // a measurement is in flight; repaint later
-function draw(){
   // geom carries the whole optical train: observation direction, the linear
   // polariser angle, and the QWP fast-axis angle.  Every renderer reads it.
   const geom = {view:st.view, polariser:st.polariser, qwp:st.qwp};

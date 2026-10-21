@@ -106,13 +106,16 @@ open -a "Google Chrome" index.html
 
 | 控件 | 范围 | 说明 |
 |---|---|---|
-| 磁场 `B` 滑块 | 0 → 1.10 T，步长 0.005 T | 主控量，直接决定分裂程度 |
-| 线圈电流 `I` 滑块 | 0 → 6.50 A，步长 0.02 A | 与 B 联动：**B = 1.30·tanh(I / 5.20)**（软磁芯磁饱和） |
-| `归零` / `最大场` | — | 一键置 0 / 置满场（I = 6.50 A → B = 1.1028 T） |
+| 磁场 `B` 滑块 | 0 → 1.05 T，步长 0.005 T | 主控量，直接决定分裂程度 |
+| 线圈电流 `I` 滑块 | 0 → 6.00 A，步长 0.01 A | 与 B 联动：**B = 1.30·tanh(I / 5.20)**（软磁芯磁饱和） |
+| `归零` / `最大场` | — | 一键置 0 / 置满场（I = 6 A → B = 1.0647 T） |
 
 两个滑块双向同步：拖动 B 会按反函数 `I = 5.20·artanh(B/1.30)` 求出对应电流，拖动 I 则正向算 B。改动 B 或 I 本身不影响已完成的标定，但第 2 步的每个测量点都必须在**当前显示的 B** 下采集。
 
-> 两个滑块的量程是**互相导出**的：`B_max = 1.30·tanh(I_max/5.20) = 1.1028 T`。因此把 B 拖到尽头所需的电流恰好是 `I_max`，不会出现「B 滑块要求 6.46 A、而 I 滑块最大只有 6.00 A」这种两个读数互相矛盾的中间态。
+> **量程必须自洽**：B 滑块上限 1.05 T 反解需 5.83 A，落在 `I_max = 6 A` 之内。
+> 若把 B 上限设到 1.10 T，反解就要 6.46 A —— 超出线圈能力，浏览器会把 I 滑块
+> 截到 6 而标签仍显示 6.46 A，两个读数就互相矛盾了。改动任一上限时必须
+> 复核另一个。
 
 ### 3.2 观察条件
 
@@ -460,44 +463,45 @@ P.minVisibleOrder(4 * Math.PI / 180);  // 3654
 
 主要导出：`components`、`applyGeometry`、`polariserWeight`、`qwpWeight`、`sigmaGroups`、`airy`、`ringRadius`、`splitDiameter`、`zeroFieldDiameter`、`orderFromTwoDiameters`、`muBFromDiameterPair`、`diameterPairSlopeScale`、`linfit`、`fieldFromCurrent`、`currentFromField`，以及常量 `MU_B`、`NU0`、`LAMBDA0_NM`、`G_UP`、`G_LO`、`FP`、`MAGNET`、`SYMMETRIC_PAIRS`、`LINE_INDEX_DELTA`。
 
-> `fieldFromCurrent(I)` 与 `currentFromField(B)` 互为反函数，`MAGNET.B_max` / `MAGNET.I_max` 由同一条标定曲线导出。改动电磁铁参数时三者必须同步，否则侧栏两个滑块会给出互相矛盾的读数。
+> `fieldFromCurrent(I)` 与 `currentFromField(B)` 互为反函数。侧栏两个滑块是同一条标定曲线的两个视图：B 滑块上限 **1.05 T**，反解出的电流为 5.83 A，落在 `MAGNET.I_max = 6 A` 之内，因此把 B 拖到尽头时两个读数与两个滑块 thumb 永远一致。改动电磁铁参数或滑块上限时必须同步复核这一点。
 
-#### 已废弃的导出（勿在新代码中使用）
-
-`ringRadiusSqVsB`、`ringSlope`、`muBFromSlope`、`OUTER_D` 属于**旧版「跟踪单个环的 r²–B」协议**。
-该模型会留下一个很大的、与 B 无关的几何项，必须先扣除才能反解 μ_B，因此已被
-现行两步法取代。这四个符号仅为对照参考而保留，源码中已标注 `@deprecated`。
-当前协议请用 `SYMMETRIC_PAIRS` + `muBFromDiameterPair` / `diameterPairSlopeScale`。
-
-> 顺带修正：旧注释称被跟踪的红移分量是「最外环」，实际红移分量（δ<0）
-> 因波长更长、cos θ 更大而位于**最内环**——与 §5.2 的环序号约定一致。
+> 旧版「跟踪单个环的 r²–B」协议（`ringRadiusSqVsB` / `ringSlope` / `muBFromSlope` / `OUTER_D`）已**整体删除**：它没有调用者，且假设了「最外环是红移分量」这一错误方向（实际红移分量因波长更长、cos θ 更大而位于**最内环**）。现行协议请用 `SYMMETRIC_PAIRS` + `muBFromDiameterPair` / `diameterPairSlopeScale`。
 
 ### 9.3 回归测试
 
-需要 Node.js、`puppeteer-core` 与本机 Chrome：
+测试分两层。**物理层零依赖、不需要浏览器**，是主门禁；**渲染层**才需要 Chrome。
 
 ```bash
-npm install puppeteer-core
-npm test
+npm test              # 物理不变式（test_physics.js，92 项，零依赖）
+npm run test:cg       # CG 系数独立复核（cg_exact.py，需要 numpy）
+npm run test:browser  # 渲染回归（verify_headless.js，需要 Chrome）
+npm run test:all      # 三层全跑
 ```
 
-脚本会自动在常见位置查找 Chrome / Chromium；找不到时可用 `CHROME_PATH` 指定：
+> `test_physics.js` 与 `verify_headless.js` 都是**门禁**：检查逐条断言，
+> 任何一项失败都会打印 `FAIL` 并以退出码 1 结束，可直接用作 CI 门禁。
+> `verify_headless.js` 会自动在常见位置查找 Chrome / Chromium，
+> 找不到时可用 `CHROME_PATH` 指定：
+> ```bash
+> CHROME_PATH=/usr/bin/chromium npm run test:browser
+> ```
 
-```bash
-CHROME_PATH=/usr/bin/chromium npm test
-```
+**物理层**（`test_physics.js`）覆盖：
 
-> `verify_headless.js` 是**门禁**：40 项检查逐条断言，任何一项失败都会打印 `FAIL` 并以退出码 1 结束，可直接用作 CI 门禁（`npm test` 的退出码即门禁结果）。
+1. 9 条分量的 δ 与**逐条**强度比（1:3:6:3:4:3:6:3:1）——只查总和是 3 无效，任何置换都是 3
+2. **环序 ↔ 实际环** —— 9 个环的 δ 标注必须与实际绘制的环一一对应
+3. 电磁铁标定自洽 —— B 滑块上限所需的电流必须落在 `I_max` 之内
+4. μ_B 反算 —— 对称对 ΔD²–B 拟合回到 CODATA
+5. 级次反解在噪声下的稳健性
 
-覆盖检查项：
+**渲染层**（`verify_headless.js`）覆盖：
 
 1. 静态检查 —— 是否成功引导、有无 JS 错误、有无弹窗
-2. 物理量 —— λ₀、g 值、9 条分量的 δ 与**逐条**强度比（1:3:6:3:4:3:6:3:1）、电磁铁标定自洽性
-3. **环标注正确性** —— 9 个环的 δ 标注必须与实际绘制的环一一对应
-4. 渲染 —— 能级图 SVG、光谱与环图 canvas 非空、尺寸合理
-5. **测量协议门控** —— 几何不符时测量按钮必须禁用
-6. 测量流程 —— 第 1 步标定 → 自动扫描 → μ_B 回收精度
-7. **退化输入** —— 同一 B 重复记录不得使拟合崩溃
+2. 物理量 —— λ₀、g 值、强度比、电磁铁标定自洽性
+3. 渲染 —— 能级图 SVG、光谱与环图 canvas 非空、尺寸合理
+4. **测量协议门控** —— 几何不符时测量按钮必须禁用
+5. 测量流程 —— 第 1 步标定 → 自动扫描 → μ_B 回收精度
+6. **退化输入** —— 同一 B 重复记录不得使拟合崩溃
 8. 双模式 —— 教师模式显示结果，学生模式确实隐藏 CODATA 值
 
 截图输出到 `shots/`（该目录已 gitignore）：`teacher-B0.75`、`teacher-along-B`、`student-B0`。
@@ -508,18 +512,25 @@ CHROME_PATH=/usr/bin/chromium npm test
 
 改 `src/physics.js` 前先读 `.workbuddy/memory/PHYSICS-NOTES.md`，其中记录了已验证的物理事实与踩过的坑（CG 系数求和归一化、Airy 相位漏因子 2、μ_B 单位换算、级次混叠判据等），避免重复引入已修正的错误。
 
-修改后必须重跑 `verify_headless.js`。
+修改后必须重跑 `npm test`（物理不变式，零依赖，几秒出结果）与
+`npm run test:browser`（渲染回归）。
 
 ---
 
 ## 10. 已验证的回归基线
 
-`verify_headless.js` 现为**门禁式**脚本：40 项检查逐条断言，任何一项失败即以
-非零退出码结束（`npm test` 可直接用作 CI 门禁）。基线由 2026-10-21 实测：
+测试分两层，都是**门禁式**脚本：检查逐条断言，任何一项失败即以非零退出码结束。
+
+- `test_physics.js`（物理不变式，零依赖，**92 项**）—— 主门禁，`npm test`
+- `verify_headless.js`（渲染回归，需 Chrome，**45 项**）—— `npm run test:browser`
+
+基线由 2026-10-21 实测：
 
 | 项目 | 结果 |
 |---|---|
-| **检查项总数** | **40 项全部通过**（失败即 exit 1） |
+| **物理不变式检查** | **92 项全部通过**（`npm test`） |
+| **渲染回归检查** | **45 项全部通过**（`npm run test:browser`） |
+| **CG 系数独立复核** | `npm run test:cg` 通过，CG2 表 9 项与精确解逐位一致 |
 | JS 运行时错误 | 0 |
 | 阻塞弹窗 | 0 |
 | 页面引导 | 成功（`window.__ZEEMAN__` 就绪） |
@@ -532,7 +543,7 @@ CHROME_PATH=/usr/bin/chromium npm test
 | **相对强度逐条** | **1:3:6:3:4:3:6:3:1**（不只查总和——任何置换总和都是 3） |
 | 1 T 时总分裂 | 1.8675 cm⁻¹ |
 | **9 个环的 δ 标注与实际绘制的环** | **0 处失配**（环 1 = δ−2 σ⁻，环 9 = δ+2 σ⁺） |
-| 电磁铁标定自洽 | B(I_max) 与 B_max 一致；反函数往返一致 |
+| 电磁铁标定自洽 | B 滑块上限 1.05 T 需 5.83 A < I_max = 6 A（两滑块读数不矛盾） |
 | 默认 FSR / 精细度 | 5.00 cm⁻¹ / 29.8 |
 | 视场内环数（θ_max = 4°） | 8.95 ≈ 9 |
 | 能级 SVG / 装置 SVG 尺寸 | 11 289 / 8 227 字节（非空） |
@@ -546,7 +557,7 @@ CHROME_PATH=/usr/bin/chromium npm test
 | σ 线对 μ_B 相对误差 | −0.27 %（R² = 0.99977，5/5 点成功） |
 | π 线对 μ_B 相对误差 | +1.76 %（R² = 0.99057，4/5 点成功） |
 | 学生模式隐藏 CODATA 值 | 通过 |
-| 能级图文字重叠 / 溢出 | 无（遍历 0 – 1.10 T 全量程） |
+| 能级图文字重叠 / 溢出 | 无（遍历 0 – 1.05 T 全量程） |
 
 ### 10.1 渲染性能（实测）
 
