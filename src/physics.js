@@ -323,9 +323,18 @@
   /** Convert a vacuum wavelength in nm to wavenumber in cm^-1. */
   function lambdaToNu(nm) { return 1e7 / nm; }
 
-  /** Neighbouring-component spacing (mean over adjacent visible components). */
+  /**
+   * Mean spacing (cm^-1) between adjacent visible components.
+   *
+   * Accepts either raw components() output or the result of
+   * applyGeometry(); in the latter case only the components that actually
+   * pass are counted.  The visibility test uses the same VISIBLE_EPS
+   * threshold as the rest of the code -- a bare `weight > 0` would count
+   * cos^2(90 deg) = 3.7e-33 as visible and include components the user
+   * cannot see.
+   */
   function meanSpacing(comps) {
-    const vis = comps.filter(c => c.weight > 0);
+    const vis = comps.filter(c => c.weight === undefined || c.weight >= VISIBLE_EPS);
     if (vis.length < 2) return 0;
     let sum = 0, n = 0;
     for (let i = 1; i < vis.length; i++) {
@@ -377,6 +386,19 @@
   const MAGNET = { B_sat: 1.30, I0: 5.20, I_max: 6.0 };
   function fieldFromCurrent(I) {
     return MAGNET.B_sat * Math.tanh(Math.max(0, I) / MAGNET.I0);
+  }
+  /**
+   * Inverse of fieldFromCurrent(): the current that produces a given field.
+   *
+   * The UI links the B and I sliders through this pair of functions, so the
+   * inverse must exist and be exact.  The argument is clamped below 0.999 of
+   * B_sat, which keeps atanh() in its domain -- with the B slider capped at
+   * 1.05 T the argument stays near 0.81 and the clamp is never reached in
+   * practice, but it keeps the function safe for any input.
+   */
+  function currentFromField(B) {
+    const r = Math.max(0, Math.min(0.999, B / MAGNET.B_sat));
+    return MAGNET.I0 * Math.atanh(r);
   }
 
   /* ================================================= Fabry–Perot etalon */
@@ -706,7 +728,7 @@
     components, applyGeometry, polariserWeight, normalisePolariser,
     normaliseQWP, qwpWeight, qwpIsSeparator, sigmaGroups,
     visibleComponents, VISIBLE_EPS, nuToLambda, lambdaToNu, meanSpacing,
-    linfit, MAGNET, fieldFromCurrent,
+    linfit, MAGNET, fieldFromCurrent, currentFromField,
     FP, airy, orderAt, ringRadius,
     LINE_INDEX_DELTA, deltaOfLineIndex, lineIndexOfDelta, SYMMETRIC_PAIRS,
     orderFromTwoDiameters, muBFromDiameterPair, diameterPairSlopeScale,
