@@ -18,9 +18,11 @@
 
    Step 2 — measure a symmetric split pair, with B != 0
        Order (k-1) now shows nine rings, numbered 1..9 from the INNERMOST
-       outwards (longer wavelength -> larger radius -> further out, so the
-       reddest component is ring 1).  Measure the diameters of a pair that is
-       symmetric about delta = 0:
+       outwards.  The Fabry-Perot resonance condition m*lambda = 2nd*cos(theta)
+       with r = f*tan(theta) means a LONGER wavelength gives a larger cos(theta),
+       hence a smaller theta and a SMALLER radius: the reddest component
+       (delta < 0) is ring 1 and the bluest (delta > 0) is ring 9.
+       Measure the diameters of a pair that is symmetric about delta = 0:
            lines 4 and 6  (delta = -0.5 / +0.5, the outer pi pair),  or
            lines 3 and 7  (delta = -1.0 / +1.0, the bright sigma pair)
        Because
@@ -46,6 +48,31 @@
     };
   }
 
+  /**
+   * The measurement geometry, FIXED by the protocol.
+   *
+   * The bench observes PERPENDICULAR to B with the polariser removed and the
+   * quarter-wave plate out.  Only then are all nine components present and the
+   * 1..9 line numbering (innermost ring outward) meaningful -- along B the pi
+   * lines do not radiate at all, and a polariser would filter part of the
+   * multiplet away.
+   *
+   * This constant deliberately does NOT follow the live UI state: the UI may
+   * well be showing a polarised or along-B view while the student inspects
+   * the pattern, but the measurement itself must always be taken in the
+   * protocol geometry, otherwise points taken under different geometries end
+   * up mixed in one fit.
+   */
+  const MEAS_GEOM = { view: 'perp', polariser: null, qwp: null };
+
+  /** True when the live UI geometry matches the measurement protocol. */
+  function geomMatchesProtocol(geom) {
+    if (!geom) return false;
+    return geom.view === MEAS_GEOM.view &&
+           geom.polariser === MEAS_GEOM.polariser &&
+           geom.qwp === MEAS_GEOM.qwp;
+  }
+
   /** Box–Muller normal deviate. */
   function gauss(rnd) {
     let u = 0, v = 0;
@@ -58,7 +85,8 @@
   function Session() {
     this.reset();
     /* The bench observes PERPENDICULAR to B with the polariser removed, so all
-       nine components are visible and the line numbering 1..9 is meaningful. */
+       nine components are visible and the line numbering 1..9 is meaningful.
+       This mirrors MEAS_GEOM and is kept for the UI to read back. */
     this.geom = { view: 'perp', polariser: null, qwp: null };
   }
 
@@ -141,8 +169,10 @@
     opts = opts || {};
     const fp = P.FP;
     const thetaMax = (opts.thetaMaxDeg || 4) * Math.PI / 180;
+    // Always measured in the protocol geometry -- never in whatever the UI
+    // happens to be showing right now.
     const prof = R.radialProfile(0, Object.assign(
-      { N: opts.N || 12000, thetaMaxDeg: opts.thetaMaxDeg || 4 }, this.geom));
+      { N: opts.N || 12000, thetaMaxDeg: opts.thetaMaxDeg || 4 }, MEAS_GEOM));
     const rings = R.findRings(prof, { minProm: opts.minProm || 0.015 });
     if (rings.length < 2) {
       return { ok: false, reason: '未识别出足够多的干涉环（B = 0 时每级只有一个环）。请增大视场。' };
@@ -209,12 +239,17 @@
     // around each predicted radius is searched, which is both faster and
     // stricter than scanning every ring: a peak belonging to a neighbouring
     // line or a neighbouring interference order can never be picked up.
+    //
+    // The profile is computed ONCE and shared by both grabs -- it depends only
+    // on B and the geometry, not on which ring is being looked for.  Building
+    // it inside grab() used to do the whole 20000-sample sweep twice per
+    // measurement, wasting about half the work.
     const N = opts.N || 20000;
     const rMaxMm = fp.f_mm * Math.tan((opts.thetaMaxDeg || 4) * Math.PI / 180);
     const tolMm = 0.45 * minSep;
+    const prof = R.radialProfile(B, Object.assign(
+      { N, thetaMaxDeg: opts.thetaMaxDeg || 4 }, MEAS_GEOM));
     const grab = (targetR) => {
-      const prof = R.radialProfile(B, Object.assign(
-        { N, thetaMaxDeg: opts.thetaMaxDeg || 4 }, this.geom));
       const idx = targetR / rMaxMm * (prof.N - 1);
       const half = Math.max(3, Math.ceil(tolMm / rMaxMm * (prof.N - 1)));
       const lo = Math.max(1, Math.floor(idx - half));
@@ -248,8 +283,8 @@
     inner.predicted = pred[pr.inner - 1].r;
     outer.predicted = pred[pr.outer - 1].r;
 
-    const Di = this.jitter(2 * inner.r);     // inner ring, positive delta
-    const Do = this.jitter(2 * outer.r);     // outer ring, negative delta
+    const Di = this.jitter(2 * inner.r);     // inner ring, negative delta
+    const Do = this.jitter(2 * outer.r);     // outer ring, positive delta
     const dSq = Do * Do - Di * Di;           // mm^2, positive by construction
     const muB = P.muBFromDiameterPair(Do, Di, pr.d0, m, B, fp);
 
@@ -324,6 +359,12 @@
       sxy += r.B * y; sxx += r.B * r.B; sy += y; n++;
     });
     if (n < 2) return null;
+    // A fit needs points at DIFFERENT fields.  Recording twice at the same B
+    // is an easy user action, and the resulting design matrix is singular:
+    // linfit() returns null (den = n*sxx - sx*sx = 0) and a free-intercept
+    // fit is meaningless.  Refuse here so the caller shows "需要 2 个以上
+    // 不同 B 值" instead of a bogus slope.
+    if (new Set(xs).size < 2) return null;
     const slope_cm2 = sxy / sxx;                       // cm^2/T
     const scale = P.diameterPairSlopeScale(m, pr.d0, P.FP);
     const muB = slope_cm2 * P.H_C_CM / scale;
@@ -345,7 +386,10 @@
     const perPoint = this.rows.filter(r => r.B > 0).map(r => r.muB);
     const mean = perPoint.reduce((a, b) => a + b, 0) / perPoint.length;
     return {
-      fit: { slope: slope_cm2, slopeErr, intercept: 0, r2, slopeFree: interceptFree.slope },
+      fit: {
+        slope: slope_cm2, slopeErr, intercept: 0, r2,
+        slopeFree: interceptFree ? interceptFree.slope : null
+      },
       m, pair: pr, muB, muBErr,
       meanPerPoint: mean,
       spreadPerPoint: perPoint.length > 1
@@ -383,5 +427,5 @@
     return out.sort((a, b) => a.r - b.r);
   }
 
-  root.ZeemanMeasure = { Session, orderRings };
+  root.ZeemanMeasure = { Session, orderRings, MEAS_GEOM, geomMatchesProtocol };
 })(typeof self !== 'undefined' ? self : this);
