@@ -22,6 +22,9 @@
     "test:browser": "node verify_headless.js",
     "test:all": "npm run test && npm run test:cg && npm run test:browser"
   },
+  "engines": {
+    "node": ">=18"
+  },
   "devDependencies": {
     "puppeteer-core": "^24.0.0"
   }

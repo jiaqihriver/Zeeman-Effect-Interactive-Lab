@@ -23,7 +23,13 @@ overlook while the misleading coefficients sat in `physics.js` comments.
 
 The checks in main() are therefore hard failures (assert), not printouts: if
 this file ever disagrees with `CG2` in src/physics.js, it must exit non-zero.
+
+NOTE: Python strips `assert` statements under `python -O`, which would turn
+every one of those checks into a no-op.  main() therefore refuses to run
+under -O rather than silently passing.
 """
+import sys
+
 import numpy as np
 
 np.set_printoptions(suppress=True)
@@ -116,6 +122,13 @@ def check_orthonormality(out, j1, j2, J):
 
 
 def main():
+    if not __debug__:
+        # `python -O` strips asserts, which would turn every check below into
+        # a silent no-op.  Fail loudly instead of reporting a false pass.
+        raise SystemExit(
+            "refusing to run under python -O: the assert-based checks in this "
+            "script would be stripped, so the validation would be meaningless")
+
     print("=" * 74)
     print("Clebsch-Gordan coefficients from J^2 diagonalisation (per fixed M)")
     print("=" * 74)

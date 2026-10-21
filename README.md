@@ -107,10 +107,12 @@ open -a "Google Chrome" index.html
 | 控件 | 范围 | 说明 |
 |---|---|---|
 | 磁场 `B` 滑块 | 0 → 1.10 T，步长 0.005 T | 主控量，直接决定分裂程度 |
-| 线圈电流 `I` 滑块 | 0 → 6.00 A，步长 0.02 A | 与 B 联动：**B = 1.30·tanh(I / 5.20)**（软磁芯磁饱和） |
-| `归零` / `最大场` | — | 一键置 0 / 置满场（I = 6 A → B ≈ 1.10 T） |
+| 线圈电流 `I` 滑块 | 0 → 6.50 A，步长 0.02 A | 与 B 联动：**B = 1.30·tanh(I / 5.20)**（软磁芯磁饱和） |
+| `归零` / `最大场` | — | 一键置 0 / 置满场（I = 6.50 A → B = 1.1028 T） |
 
 两个滑块双向同步：拖动 B 会按反函数 `I = 5.20·artanh(B/1.30)` 求出对应电流，拖动 I 则正向算 B。改动 B 或 I 本身不影响已完成的标定，但第 2 步的每个测量点都必须在**当前显示的 B** 下采集。
+
+> 两个滑块的量程是**互相导出**的：`B_max = 1.30·tanh(I_max/5.20) = 1.1028 T`。因此把 B 拖到尽头所需的电流恰好是 `I_max`，不会出现「B 滑块要求 6.46 A、而 I 滑块最大只有 6.00 A」这种两个读数互相矛盾的中间态。
 
 ### 3.2 观察条件
 
@@ -250,15 +252,17 @@ SVG 光路图，与侧栏控件**实时联动**：
 δ = g_u m_u − g_l m_l     （以洛伦兹单位 L 为单位，1 L = μ_B B/hc = 0.46686·B cm⁻¹）
 ```
 
-按波长从蓝到红（即从内环到外环）为 1 → 9：
+按**从内环到外环**编号为 1 → 9（波长越长 → cos θ 越大 → θ 越小 → 环半径越小，故红移分量在内侧）：
 
 | 线序号 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
 |---|---|---|---|---|---|---|---|---|---|
-| δ | +2 | +1.5 | +1 | +0.5 | 0 | −0.5 | −1 | −1.5 | −2 |
-| 偏振 | σ⁺ | σ⁺ | σ⁺ | π | π | π | σ⁻ | σ⁻ | σ⁻ |
+| δ | −2 | −1.5 | −1 | −0.5 | 0 | +0.5 | +1 | +1.5 | +2 |
+| 偏振 | σ⁻ | σ⁻ | σ⁻ | π | π | π | σ⁺ | σ⁺ | σ⁺ |
 | 相对强度 | 1 | 3 | 6 | 3 | 4 | 3 | 6 | 3 | 1 |
 
-> CG 平方系数由 `cg_exact.py` 在固定 M 子空间内对角化 J² 独立生成，每个固定 m_u 切片精确求和为 1；脚本以 assert 硬校验 7 个 1×1 教科书值，任一处不符即以非零码退出。**不要手写 Wigner 3j 公式**，前因子极易出错。
+> CG 平方系数由 `cg_exact.py` 在**固定 M 子空间**内对角化 J² 独立生成，每个固定 m_u 切片精确求和为 1；脚本以 assert 硬校验 7 个 1×1 教科书值，任一处不符即以非零码退出，并实读 `src/physics.js` 交叉核对 `CG2` 表。**不要手写 Wigner 3j 公式**，前因子极易出错。
+>
+> **符号约定**：正 δ 对应**更高波数**（波长更短、半径更大），故蓝移分量在外圈、红移分量在内圈。`splitDiameter()` 直接复用 `components()` 的波长结果，因此 δ 与环的对应只有一个真相源——环上标注的 δ 必然落在实际绘制的那个环上。`test_physics.js` 对这一点有专门的不变式检查。
 
 ### 5.3 Fabry–Perot 环
 
@@ -314,7 +318,13 @@ T = 1 / (1 + ℱ sin²(π d cosθ / λ))
 
 ## 7. ④ 实验测量协议
 
-> **前置条件**：观察方向 = ⊥ B，偏振片移除，λ/4 片取出。此模式下 9 条分量全可见，1–9 的线序号才有意义。测量程序会自动使用这一几何条件。
+> **前置条件**：观察方向 = ⊥ B，偏振片移除，λ/4 片取出。此模式下 9 条分量全可见，1–9 的线序号才有意义。
+>
+> 这一条件由程序**强制**：几何不符时面板标题变黄告警、三个测量按钮被禁用；
+> 若在已有数据点时改变观察方向或偏振片/波片状态，已记录的数据点会全部作废
+> （1–9 的线序号只在协议几何下成立，混用会导致拟合出错误结果）。
+> 测量本身始终在协议几何下进行（`M.MEAS_GEOM`），不会跟随界面上正在预览的
+> 其他几何——所以不会出现「用沿 B 观察的图去测 ⊥ B 的量」这种错误。
 
 ### 7.1 第 1 步：定标 —— 测 B = 0 时的两个参考环直径
 
@@ -448,7 +458,19 @@ P.maxOrder();                 // 3662
 P.minVisibleOrder(4 * Math.PI / 180);  // 3654
 ```
 
-主要导出：`components`、`applyGeometry`、`polariserWeight`、`qwpWeight`、`sigmaGroups`、`airy`、`ringRadius`、`splitDiameter`、`zeroFieldDiameter`、`orderFromTwoDiameters`、`muBFromDiameterPair`、`diameterPairSlopeScale`、`linfit`、`fieldFromCurrent`，以及常量 `MU_B`、`NU0`、`LAMBDA0_NM`、`G_UP`、`G_LO`、`FP`、`SYMMETRIC_PAIRS`、`LINE_INDEX_DELTA`。
+主要导出：`components`、`applyGeometry`、`polariserWeight`、`qwpWeight`、`sigmaGroups`、`airy`、`ringRadius`、`splitDiameter`、`zeroFieldDiameter`、`orderFromTwoDiameters`、`muBFromDiameterPair`、`diameterPairSlopeScale`、`linfit`、`fieldFromCurrent`、`currentFromField`，以及常量 `MU_B`、`NU0`、`LAMBDA0_NM`、`G_UP`、`G_LO`、`FP`、`MAGNET`、`SYMMETRIC_PAIRS`、`LINE_INDEX_DELTA`。
+
+> `fieldFromCurrent(I)` 与 `currentFromField(B)` 互为反函数，`MAGNET.B_max` / `MAGNET.I_max` 由同一条标定曲线导出。改动电磁铁参数时三者必须同步，否则侧栏两个滑块会给出互相矛盾的读数。
+
+#### 已废弃的导出（勿在新代码中使用）
+
+`ringRadiusSqVsB`、`ringSlope`、`muBFromSlope`、`OUTER_D` 属于**旧版「跟踪单个环的 r²–B」协议**。
+该模型会留下一个很大的、与 B 无关的几何项，必须先扣除才能反解 μ_B，因此已被
+现行两步法取代。这四个符号仅为对照参考而保留，源码中已标注 `@deprecated`。
+当前协议请用 `SYMMETRIC_PAIRS` + `muBFromDiameterPair` / `diameterPairSlopeScale`。
+
+> 顺带修正：旧注释称被跟踪的红移分量是「最外环」，实际红移分量（δ<0）
+> 因波长更长、cos θ 更大而位于**最内环**——与 §5.2 的环序号约定一致。
 
 ### 9.3 回归测试
 
@@ -456,20 +478,29 @@ P.minVisibleOrder(4 * Math.PI / 180);  // 3654
 
 ```bash
 npm install puppeteer-core
-node verify_headless.js
+npm test
 ```
 
-> `verify_headless.js` 顶部的 `CHROME` 常量是Chrome 可执行文件的绝对路径，按本机实际情况修改（macOS 默认 `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`）。
+脚本会自动在常见位置查找 Chrome / Chromium；找不到时可用 `CHROME_PATH` 指定：
+
+```bash
+CHROME_PATH=/usr/bin/chromium npm test
+```
+
+> `verify_headless.js` 是**门禁**：40 项检查逐条断言，任何一项失败都会打印 `FAIL` 并以退出码 1 结束，可直接用作 CI 门禁（`npm test` 的退出码即门禁结果）。
 
 覆盖检查项：
 
 1. 静态检查 —— 是否成功引导、有无 JS 错误、有无弹窗
-2. 物理量 —— λ₀、g 值、9 条分量的 δ 与强度比、FP 参数
-3. 渲染 —— 能级图 SVG、光谱与环图 canvas 非空、尺寸合理
-4. 测量流程 —— 第 1 步标定 → 自动扫描 → μ_B 回收精度
-5. 双模式 —— 教师模式显示结果，学生模式确实隐藏 CODATA 值
+2. 物理量 —— λ₀、g 值、9 条分量的 δ 与**逐条**强度比（1:3:6:3:4:3:6:3:1）、电磁铁标定自洽性
+3. **环标注正确性** —— 9 个环的 δ 标注必须与实际绘制的环一一对应
+4. 渲染 —— 能级图 SVG、光谱与环图 canvas 非空、尺寸合理
+5. **测量协议门控** —— 几何不符时测量按钮必须禁用
+6. 测量流程 —— 第 1 步标定 → 自动扫描 → μ_B 回收精度
+7. **退化输入** —— 同一 B 重复记录不得使拟合崩溃
+8. 双模式 —— 教师模式显示结果，学生模式确实隐藏 CODATA 值
 
-截图输出到 `shots/`（该目录已 gitignore）：`fullpage`、`student-B0`、`teacher-B0.75`、`teacher-along-B`、`apparatus-panel`、`apparatus-qwp`、`apparatus-fixed`、`measure-panel`、`measure-pi`。
+截图输出到 `shots/`（该目录已 gitignore）：`teacher-B0.75`、`teacher-along-B`、`student-B0`。
 
 > 提示：headless Chrome 遇到 `alert()` / `confirm()` 会挂起等待。程序内已改为**内联提示**，测试脚本也注册了 dialog 处理器双重保险。
 
@@ -483,10 +514,12 @@ node verify_headless.js
 
 ## 10. 已验证的回归基线
 
-由 `verify_headless.js` 于 2026-10-04 实测：
+`verify_headless.js` 现为**门禁式**脚本：40 项检查逐条断言，任何一项失败即以
+非零退出码结束（`npm test` 可直接用作 CI 门禁）。基线由 2026-10-21 实测：
 
 | 项目 | 结果 |
 |---|---|
+| **检查项总数** | **40 项全部通过**（失败即 exit 1） |
 | JS 运行时错误 | 0 |
 | 阻塞弹窗 | 0 |
 | 页面引导 | 成功（`window.__ZEEMAN__` 就绪） |
@@ -496,7 +529,10 @@ node verify_headless.js
 | 洛伦兹单位 | 0.46686 cm⁻¹/T |
 | 分量数 / 强度归一 | 9 条 / Σ = 3.000 |
 | 9 条 δ | +2, +1.5, +1, +0.5, 0, −0.5, −1, −1.5, −2 |
+| **相对强度逐条** | **1:3:6:3:4:3:6:3:1**（不只查总和——任何置换总和都是 3） |
 | 1 T 时总分裂 | 1.8675 cm⁻¹ |
+| **9 个环的 δ 标注与实际绘制的环** | **0 处失配**（环 1 = δ−2 σ⁻，环 9 = δ+2 σ⁺） |
+| 电磁铁标定自洽 | B(I_max) 与 B_max 一致；反函数往返一致 |
 | 默认 FSR / 精细度 | 5.00 cm⁻¹ / 29.8 |
 | 视场内环数（θ_max = 4°） | 8.95 ≈ 9 |
 | 能级 SVG / 装置 SVG 尺寸 | 11 289 / 8 227 字节（非空） |
@@ -505,11 +541,27 @@ node verify_headless.js
 | 可见性：⊥ B 无偏振片 | 9 条 |
 | 可见性：⊥ B 偏振片 ∥ B / ⊥ B | 3 条（π）/ 6 条（σ） |
 | 可见性：∥ B 无 / 有偏振片 | 6 条 / 6 条（恒 50%） |
+| **测量协议几何门控** | 插偏振片 / 切 ∥ B 时测量按钮禁用，移出后恢复 |
+| **同一 B 重复记录** | 不崩溃，给出「需不同 B 值」提示 |
 | σ 线对 μ_B 相对误差 | −0.27 %（R² = 0.99977，5/5 点成功） |
 | π 线对 μ_B 相对误差 | +1.76 %（R² = 0.99057，4/5 点成功） |
 | 学生模式隐藏 CODATA 值 | 通过 |
 | 能级图文字重叠 / 溢出 | 无（遍历 0 – 1.10 T 全量程） |
 
+### 10.1 渲染性能（实测）
+
+| 场景 | 优化前 | 优化后 |
+|---|---|---|
+| 干涉环重绘（dpr 1.4，1.63 Mpx） | 27.3 ms | **14.5 ms** |
+| 干涉环重绘（dpr 2，3.32 Mpx） | 57.0 ms | **27.6 ms** |
+| 拖动 B 滑块 60 次事件 | 1826 ms | **21 ms** |
+| 拖动时的环图重绘次数 | 60 | **1**（rAF 合并） |
+| 单点测量 `measurePair` | 13.5 ms | **7.2 ms** |
+| 五点自动扫描 | 67 ms | **40 ms** |
+
+主要手段：ImageData 缓冲复用（消除每帧 6–13 MB 分配）、gamma 查表替代
+`Math.pow`、rAF 合并重绘、`radialProfile` 每点只算一次、中位数改用直方图。
+
 ---
 
-*文档版本 2026-10-04　｜　对应模拟器版本同期*
+*文档版本 2026-10-21　｜　对应模拟器版本同期*
